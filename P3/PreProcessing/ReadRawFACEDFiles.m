@@ -1,6 +1,3 @@
-% DataFolder = 'C:\Users\marle\OneDrive\Documenten\PhD\P3 - Ultrafast two photon\FACED dummy data\dummy5';
-% SaveFolder = 'C:\Users\marle\OneDrive\Documenten\PhD\P3 - Ultrafast two photon\FACED dummy data\Dummy5Save';
-
 function ReadRawFACEDFiles(DataFolder, SaveFolder, BinningSpatial, BinningTemp, b_SubROI)
 % function ImagesClassification(DataFolder, SaveFolder, BinningSpatial, BinningTemp, b_SubROI)
 %%% 
@@ -58,56 +55,22 @@ save([SaveFolder 'AcqInfos.mat'],'AcqInfoStream'); %To keep this information and
 % Data Format and Header Information:
 
 hWima = 5; %wat is dit? MB
-imgFilesList = dir([DataFolder 'faced*.bin']);
 nx = AcqInfoStream.nx;
 ny = AcqInfoStream.ny;
+ny = ny + AcqInfoStream.ny_extra;
+% extra_ny = AcqInfoStream.n_extra__in_ny_;
+% ny = ny + extra_ny;
 
 %Header format for each individual image:
-frameFormat = {'uint64', 3, 'framej';'uint16', [double(nx), double(ny)], 'imgj'}; % wat is dit MB
-% ImRes_XY = [nx, ny]; % replaced by changing ImRes_XY(1) by nx etc.
-SizeImage = nx*ny*2 + 3*8; % waarom +3*8 MB
+%frameFormat = {'uint64', 3, 'framej';'uint16', [double(nx), double(ny)], 'imgj'}; % wat is dit MB
+frameFormat = {'uint16', [double(nx), double(ny)], 'imgj'}; % 
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Select ROI if applicable
-% SubROI...
-if( b_SubROI )
-    fprintf('Redefining Region Of Interest post-process: \n');
-    %Dialog (there are different options to determine the new ROI):
-    ButtonName = questdlg('Would you like to use a pre-defined ROI?', ...
-        'ROI', ...
-        'Pre-defined', 'Draw', 'Cancel', 'Draw');
-    switch ButtonName  %Depending on user choice:
-        case 'Pre-defined' %Used a ROI from an other acquisition:
-            [filename, pathname] = uigetfile('*.mat', 'Select ROI file');
-            if isequal(filename,0) || isequal(pathname,0)
-                disp('User pressed cancel')
-                Pos = [1 1 nx ny];
-            else
-                load([pathname filesep filename]);%#ok
-            end
-        case 'Draw' %Select ROI directly on a frame:
-            dat = memmapfile([DataFolder...
-                imgFilesList(1).name],...
-                'Offset', hWima*4 + 5*SizeImage,...
-                'Format', frameFormat, 'repeat', 1);
-            dat = dat.Data.imgj;
-            fig = figure; imagesc(dat);
-            h = drawrectangle();
-            wait(h);
-            Pos = h.Position;
-            close(fig);
-        case 'Cancel' %User Changed is mind and want to use the original ROI
-            disp('User pressed cancel')
-            Pos = [1 1 nx ny];
-    end
+LimX = [1 nx];
+LimY = [1 ny];
 
-    LimX = [round(Pos(1)) round(Pos(1)+Pos(3))];
-    LimY = [round(Pos(2)) round(Pos(2)+Pos(4))];
-    save([SaveFolder 'ROI.mat'],'Pos'); %Save region of interest in a .mat file
-else
-    LimX = [1 nx];
-    LimY = [1 ny];
-end
 Rx = round((LimX(2) - LimX(1) + 1)/BinningSpatial); % nieuwe pixel grootte? MB
 Ry = round((LimY(2) - LimY(1) + 1)/BinningSpatial);
 
@@ -132,15 +95,17 @@ fprintf('Done. \n');
         end
 
         %matfile:
-        fColor = matfile([SaveFolder hTag], 'Writable', true);
-        fColor.datFile = dTag;
-        fColor.datSize = [Ry, Rx];
-        fColor.datLength = 0;
-        fColor.FirstDim = 'y';
-        fColor.Datatype = 'single';
-        fColor.datName = 'data';
-        fColor.dim_names = {'Y', 'X', 'T'};
-        fColor.Freq = (AcqInfoStream.FrameRateHz)/BinningTemp;
+        %MB%
+        % fColor = matfile([SaveFolder hTag], 'Writable', true);
+        % fColor.datFile = dTag;
+        % fColor.datSize = [Ry, Rx];
+        % fColor.datLength = 0;
+        % fColor.FirstDim = 'y';
+        % fColor.Datatype = 'single';
+        % fColor.datName = 'data';
+        % fColor.dim_names = {'Y', 'X', 'T'};
+        % fColor.Freq = (AcqInfoStream.FrameRateHz)/BinningTemp; %MB%
+
         % fColor.tExposure = colors(1).Exposure;
         fid = fopen([SaveFolder dTag],'w');
 
@@ -183,11 +148,74 @@ fprintf('Done. \n');
                 Images = imresize(Images,1/BinningSpatial);
             end
 
+            % Remove returning pmt (MB)
+            % Images = 
+
             fwrite(fid, single(Images), 'single');
-            fColor.datLength = fColor.datLength + size(Images,3);
+            % fColor.datLength = fColor.datLength + size(Images,3); %MB%
             fprintf('\n');
         end
 
         fclose(fid);
     end
+end
+
+
+function out = ReadInfoFileFACED(FolderPath, varargin)
+% This function parses the "info.txt" file and saves the data to a
+% structure.
+% Inputs:
+% FolderPath (char): Path to folder containing the "info.txt" file.
+% infoFile (char): Optional Parameter. Name of the .TXT file containing the
+% acquisition information. Use this parameter to read a file with a
+% different name as "info".
+
+infofile_patch(FolderPath);
+
+% Read the info.txt file:
+if nargin == 1
+    txt = readcell(fullfile(FolderPath, 'info.txt'), 'Delimiter', ':', 'NumHeaderLines',1);
+else
+    [~,infoFile,ext] = fileparts(varargin{:});
+    if isempty(ext)
+        ext = '.txt';
+    end        
+    txt = readcell(fullfile(FolderPath, [infoFile, ext]), 'Delimiter', ':', 'NumHeaderLines',1);
+end
+    
+% Rebuild strings that were split by the delimiter:
+b_hasMissingVals = cellfun(@(x) isa(x,'missing'), txt);
+if size(txt,2)>2
+    for ind = 1:size(txt,1)
+        if all(~b_hasMissingVals(ind,2:end))            
+            txt{ind,2} = strjoin(cellfun(@num2str,txt(ind,2:end), 'UniformOutput',false),': ');
+        end
+    end
+end
+
+% Remove Parameters with missing values:
+txt(b_hasMissingVals(:,2),:) = [];
+% Replace white spaces in Parameters column by underscores:
+txt(:,1) = cellfun(@(x) strrep(x, ' ', '_'),txt(:,1), 'UniformOutput', false);
+% Create structure from text:
+out = struct();
+for ind = 1:size(txt,1)
+    Param = txt{ind,1};
+    Value = txt{ind,2};
+
+    if ischar(Value)
+        if ( all(isstrprop(erase(Value, ' '), 'digit')) )
+            Value = str2num(Value);%#ok. "str2double" would return NaN in this case.
+        end
+    end
+
+    if contains(Param, '(') || contains(Param, ')') % for ny extra, redundant now
+        Param = strrep(Param, '(', '_');
+        Param = strrep(Param, ')', '_');
+    end
+    % Save parameter value to structure:
+    out.(Param) = Value;
+end
+% Save MultiCam index:
+out.MultiCam = 0;
 end

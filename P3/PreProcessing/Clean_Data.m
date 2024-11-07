@@ -12,29 +12,36 @@
 % Note: there's a lot of things called "range" in this function. Check per
 % range in the comments what it is for.
 
-function Clean_Data(DataFolder, show_plots)
+function Clean_Data(DataFolder)
 
 if ~strcmp(DataFolder(end), filesep)
     DataFolder = [DataFolder filesep];
 end
 
-if ~exist('show_plots', 'var')
-    show_plots = 1;
-end
+% if ~exist('show_plots', 'var')
+%     show_plots = 1;
+% end
 
 %% load data
 load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
+% check if you have a width
+if isstring(AcqInfoStream.width)
+    error('Width not known in infofile, or saved as string. Fix before running Clean_Data.')
+end
 datSize = [AcqInfoStream.nx, (AcqInfoStream.ny + AcqInfoStream.ny_extra)];
 
 fid = fopen([DataFolder 'faced.dat']);
 try
     dat = fread(fid, inf, '*single');
+    faced_cut = 0;
 catch
     fid = fopen([DataFolder 'faced.dat']);
-    nr_of_frames = 9000; 
+    % nr_of_frames = round(AcqInfoStream.FrameRateHz*10); 
+    nr_of_frames = round(AcqInfoStream.FrameRateHz*2); % 2 sec
     dat = fread(fid, datSize(1)*datSize(2)*nr_of_frames, '*single');
-    disp('WARNING, FRAMES CUT TO 9000')
-    disp('fix later')
+    disp('WARNING, FRAMES CUT')
+    faced_cut = 1;
+    % FIX LATER
 end
 fclose(fid);
 dat = reshape(dat, datSize(2), datSize(1), []);
@@ -48,6 +55,8 @@ dat = dat- lowest_value;
 illumination_profile = mean(mean(dat,3),1)/max(mean(mean(dat,3),1));
 dat = dat./illumination_profile;
 
+
+%% find borders of field of view
 %% Y-axis correction: get rid of galvo moving back
 % since the return is a mirror image of the relevant data, check at which
 % point they have the most correlation. This is the most likely point of
@@ -57,8 +66,10 @@ dat = dat./illumination_profile;
 % return point matches the mirror image the best. 
 
 av_image_og = mean(dat, 3);
-return_range_start = AcqInfoStream.height*0.5 + 50;
-return_range_end = AcqInfoStream.height*0.5 + 150;
+% return_range_start = AcqInfoStream.height*0.5 + 50;
+% return_range_end = AcqInfoStream.height*0.5 + 150;
+return_range_start = round((AcqInfoStream.ny+AcqInfoStream.ny_extra)*0.1);
+return_range_end = round((AcqInfoStream.ny+AcqInfoStream.ny_extra)*0.5);
 
 corr_values = zeros(1,(return_range_end-return_range_start+1));
 for est_return = return_range_start:return_range_end 
@@ -70,7 +81,7 @@ end
 [~, indmax] = max(corr_values);
 return_point = indmax+return_range_start-1;
 
-if show_plots
+% if show_plots
     % verify:
     new_im = av_image_og(return_point:end,:);
     cutoff_part = flipud(av_image_og(1:return_point,:));
@@ -84,7 +95,7 @@ if show_plots
     nexttile(); imshowpair(new_im, cutoff_part); title('Comparison');
     title(t1, 'Y-axis correction (galvo return)')
     f1.Position = [1.8000   49.8000  766.4000  828.8000];
-end
+% end
 
 y_range = [return_point, size(dat, 1)];
 
@@ -134,12 +145,15 @@ end
 
 
 %% Cropped image & pixel sizes:
+answer_isgood = 'No';
+
+while matches(answer_isgood, 'No')
 av_image_cropped = av_image_og(y_range(1):y_range(2),x_range(1):x_range(2));
 pxl_sz_x = AcqInfoStream.width/size(av_image_cropped,2); % 1 pixel = ... um in x direction
 pxl_sz_y = AcqInfoStream.height/size(av_image_cropped,1);
 proportion_XY_ax = [1 pxl_sz_x/pxl_sz_y 1];
 
-if show_plots
+% if show_plots
     % check:
     f2 = figure;
     t2 = tiledlayout('flow');
@@ -181,18 +195,33 @@ if show_plots
     title(t2, 'X and Y correction')
     f2.Position = [769.8000   49.8000  766.4000  828.8000];
 
-    answer = questdlg('Does it make sense?');
-    switch answer
+    answer_isgood = questdlg('Does it make sense?');
+    switch answer_isgood
         case {'No', 'Cancel'}
-            error('Cropping was not done properly, function exited')
+ 
+            prompt = {'x begin', 'x end', 'y begin', 'y end'};
+            definput = {num2str(x_range(1)), num2str(x_range(2)), num2str(y_range(1)), num2str(y_range(2))};
+            answer = inputdlg(prompt, 'Cropping', [1 45;1 45; 1 45;1 45], definput);
+            x_range = str2double(answer(1:2))';
+            y_range = str2double(answer(3:4))';
+
     end
 
-    close(f1, f2);
-end
+    close(f2);
 
+end
+% end
+close(f1)
 
 %% Save
-save([DataFolder 'morphology_img.mat'], 'av_image_cropped', 'proportion_XY_ax', 'av_image_og');
+%% Save .dat
+% because you normalized etc.
+fid = fopen([DataFolder 'faced.dat'],'w');
+fwrite(fid, single(dat), 'single');
+fclose(fid);
+% save([DataFolder 'morphology_img.mat'], 'faced_cut'); % save if you cut the faced.dat file or not
+    
+save([DataFolder 'morphology_img.mat'], 'faced_cut', 'av_image_cropped', 'proportion_XY_ax', 'av_image_og', 'y_range', 'x_range', 'illumination_profile');
 
 % AcqInfoStream.new_ny = size(av_image,1);
 % AcqInfoStream.new_nx = size(av_image,2);

@@ -170,7 +170,7 @@ function out = ReadInfoFileFACED(FolderPath, varargin)
 % acquisition information. Use this parameter to read a file with a
 % different name as "info".
 
-infofile_patch(FolderPath);
+% infofile_patch(FolderPath); % already in AddRecording
 
 % Read the info.txt file:
 if nargin == 1

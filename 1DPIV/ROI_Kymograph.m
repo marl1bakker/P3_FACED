@@ -19,15 +19,27 @@ if ~isempty(dir([DataFolder 'kymoROI*.mat']))
         disp('ROI already made for this Acq., add was set to 0. Function exited.')
         return
     end
-    nr_of_roi = size(dir('kymoROI*.mat'), 1);
+    nr_of_roi = size(dir([DataFolder 'kymoROI*.mat']), 1);
 else
     nr_of_roi = 0;
 end
 
-%% load data
-load([DataFolder 'morphology_img.mat'], 'av_image_og', 'proportion_XY_ax');
-av_image = av_image_og;
-clear av_image_og;
+load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream');
+if isfield(AcqInfoStream, 'pxl_sz_y_avged')
+    pxlsizeY = AcqInfoStream.pxl_sz_y_avged;
+else
+    pxlsizeY = AcqInfoStream.pxl_sz_y;
+end
+
+% in case of hardware linescan
+if AcqInfoStream.height == 1
+    disp('This is a linescan, ROI already made automatically in Clean_Data.')
+    return
+end
+
+% load data
+load([DataFolder 'morphology_img.mat'], 'av_image');
+proportion_XY_ax = [1 AcqInfoStream.pxl_sz_x/pxlsizeY 1];
 
 %% Start doing ROI, keep looping until you have all the roi you want.
 more_to_add = 1;
@@ -44,6 +56,9 @@ while more_to_add
     ROI_type_list = {'line', 'block', 'block_fixed_height', 'automatic', ...
         'perpendicular_line', 'perpendicular_block'};
     [indx, ~] = listdlg('PromptString', 'Choose a ROI type', 'ListString', ROI_type_list);
+    if isempty(indx)
+        return % if you canceled
+    end
     ROI_type = ROI_type_list{indx};
 
     f10 = figure;
@@ -69,11 +84,17 @@ while more_to_add
             % pixel wide.
             Coor = [col', row']; % make sure it's the same as Coor from roi of fiji
 
-            % mask_roi = zeros(size(av_image));
-            % for pxlIndx = 1:size(Coor,1)
-            %     mask_roi(Coor(pxlIndx,2), Coor(pxlIndx,1)) = 1;
-            % end
-            % mask_roi = bwmorph(mask_roi, 'thin', inf);
+            % sometimes it does not include endpoint in coor. Check and add if needed.
+            % Matters for calculation of pixelsize_ROI.
+            end_point = start_end_points(end,:);
+            last_end_point = find(Coor(:,1) == end_point(1) & Coor(:,2) == end_point(2), 1, 'first');
+            if isempty(last_end_point)
+                % disp('DIDNT TEST THIS BIT YET PAY ATTNETINO')
+                % pause
+                Coor(end+1,:) = end_point;
+                roi_pixels = [roi_pixels, sub2ind(size(av_image), end_point(2), end_point(1))];
+            end
+            clear end_point last_end_point
 
             close(f1, f10);
             savename = sprintf('kymoROI_%d.mat', nr_of_roi);
@@ -81,6 +102,12 @@ while more_to_add
 
         case 'automatic'
             load([DataFolder 'morphology_img.mat'], 'av_image_og', 'av_image_cropped');
+            if ~exist('av_image_cropped', 'var')
+                load([DataFolder 'morphology_img.mat'], 'av_image');
+                av_image_cropped = av_image;
+                clear av_image
+            end
+
             av_image = av_image_og;
             clear av_image_og
 
@@ -170,8 +197,9 @@ while more_to_add
             % figure
             % imagesc(bla)
 
-            load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
-            block_height_um = ( roiY(2)-roiY(1) ) * AcqInfoStream.pxl_sz_y;
+            % load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
+            % block_height_um = ( roiY(2)-roiY(1) ) * AcqInfoStream.pxl_sz_y;
+            block_height_um = ( roiY(2)-roiY(1) ) * pxlsizeY;
 
             close(f1, f10)
             savename = sprintf('kymoROI_%d.mat', nr_of_roi);
@@ -190,9 +218,10 @@ while more_to_add
             Coorx = roiX(1):roiX(2);
                 
             y_height = round(mean(start_end_points([3, 4])));
-            load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
-            roiY = [round(y_height - (block_height_um/AcqInfoStream.pxl_sz_y) ), ...
-                round(y_height + (block_height_um/AcqInfoStream.pxl_sz_y) )];
+            % load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
+
+            roiY = [round(y_height - (block_height_um/pxlsizeY) ), ...
+                round(y_height + (block_height_um/pxlsizeY) )];
             Coory = roiY(1):roiY(2);
   
             Coor = [];
@@ -221,6 +250,7 @@ while more_to_add
             save([DataFolder savename], 'Coor', 'roiX', 'roiY', 'ROI_type', 'block_height_um');
 
         case 'perpendicular_block'
+            % error('fix this in code')
             roi_pixels = drawrectangle;
             roiX = round([roi_pixels.Position(1), roi_pixels.Position(1)+roi_pixels.Position(3)]);
             roiY = round([roi_pixels.Position(2), roi_pixels.Position(2)+roi_pixels.Position(4)]);
@@ -238,8 +268,9 @@ while more_to_add
             % figure
             % imagesc(bla)
 
-            load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
-            block_height_um = ( roiY(2)-roiY(1) ) * AcqInfoStream.pxl_sz_y;
+            % load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
+            % block_height_um = ( roiY(2)-roiY(1) ) * AcqInfoStream.pxl_sz_y;
+            block_height_um = ( roiY(2)-roiY(1) ) * pxlsizeY;
 
             close(f1, f10)
             savename = sprintf('kymoROI_%d.mat', nr_of_roi);

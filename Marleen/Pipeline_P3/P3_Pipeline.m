@@ -1,4 +1,8 @@
 %% P3_Pipeline
+% to do: M07 A73 opnieuw, get raw files, same for A16, A68, A72
+
+%M09 A52 & M13 A25 gave problems, noted as 01-01-2050
+
 %% One time calibration of x-axis
 % CalibrationFolder = 'D:\FACED\Raw Data\M03\calibration\';
 % ReadRawFACEDFiles(CalibrationFolder, CalibrationFolder, 1, 1, 0, 0, 10); % take av over 10 frames
@@ -6,138 +10,164 @@
 
 %% Add recording to overview (have to do "manually" per mouse)
 SaveDirectory = 'D:\FACED\Data P3\';
-% AddRecording('D:\FACED\Raw Data\M01\', SaveDirectory);
-% AddRecording('D:\FACED\Raw Data\M02\', SaveDirectory);
-% AddRecording('D:\FACED\Raw Data\M04\', SaveDirectory);
+BackupDirectory = 'E:\PhD\P3 - Ultrafast two photon';
+
+% AddRecording('D:\FACED\Raw Data\M16\', SaveDirectory);
+load([SaveDirectory 'Overview.mat'], 'Overview', 'Pipeline_check')
+% save([BackupDirectory filesep 'Overview_backup_' num2str(day(datetime)) '-' num2str(month(datetime)) '-' num2str(year(datetime)) '.mat'], 'Overview', 'Pipeline_check')
 
 %% Go per Recording
-load([SaveDirectory 'Overview.mat'], 'Overview', 'Pipeline_check')
 
 % for ind = 87:size(Overview,1)
-for ind = 129:size(Overview,1)
-    Mouse = Overview.Mouse{ind};
+for ind = 1:size(Overview,1)
+% for ind = 1:390
+     Mouse = Overview.Mouse{ind};
     Acq = Overview.Acq{ind};
     check_ind = find(matches(Pipeline_check.Mouse, Mouse).*matches(Pipeline_check.Acq, Acq));
     DataFolder = Overview.DataFolder{ind};
     RawDataFolder = Overview.RawDataFolder{ind};
 
+    fprintf('\n');    fprintf('\n');
+    disp('-------------------------------');
     disp(['Pipeline for ' Mouse ' ' Acq]);
       
     % Make faced.dat file
-    current_step = 'ReadRawFACEDFiles';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) ...
-            || Pipeline_check.(current_step)(check_ind) < datetime('9-Mar-2025')
+    % current_step = 'ReadRawFACEDFiles';
+    exist_step = any(strcmp('ReadRawFACEDFiles',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.ReadRawFACEDFiles(check_ind)) ...
+            || Pipeline_check.ReadRawFACEDFiles(check_ind) < datetime('9-Mar-2025')
         try
-            ReadRawFACEDFiles(RawDataFolder, DataFolder, 1, 1, 0);
+            % temp
+             if ~exist([DataFolder filesep 'faced.dat'], 'file') 
+                ReadRawFACEDFiles(RawDataFolder, DataFolder, 1, 1, 0);
+             else
+                s = dir([DataFolder filesep 'faced.dat']);
+                if s.bytes == 0
+                    ReadRawFACEDFiles(RawDataFolder, DataFolder, 1, 1, 0,1);
+                end
+                clear s
+            end
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
+            Pipeline_check.ReadRawFACEDFiles(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('ReadRawFACEDFiles done!')
         catch
-            disp([current_step ' Error!'])
+            disp('ReadRawFACEDFiles Error!')
             continue
         end
     else
-        disp([current_step ' already done.'])
+        disp('ReadRawFACEDFiles already done.')
     end
 
+    % continue
+
     % Add information to the info file
-    current_step = 'Add_to_AcqInfos';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind))
+    % current_step = 'Add_to_AcqInfos';
+    exist_step = any(strcmp('Add_to_AcqInfos',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.Add_to_AcqInfos(check_ind))
         try
             AddInfo(DataFolder, 'Mouse', 'Change', Mouse);
             AddInfo(DataFolder, 'Comments', 'Add');
             AddInfo(DataFolder, 'Coupled_acq');
-            
-            Pipeline_check.(current_step)(check_ind) = datetime;
+
+            Pipeline_check.Add_to_AcqInfos(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('Add_to_AcqInfos done!')
         catch
-            disp([current_step ' Error!'])
+            disp('Add_to_AcqInfos Error!')
         end
     else
-        disp([current_step ' already done.'])
+        disp('Add_to_AcqInfos already done.')
     end
 
-
+% continue
     % Take off the part where the galvo has to reset and get average image
-    current_step = 'Clean_Data';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) || ...
-            Pipeline_check.Clean_Data(check_ind) < Pipeline_check.ReadRawFACEDFiles(check_ind) % hardcoded
+    % current_step = 'Clean_Data';
+    exist_step = any(strcmp('Clean_Data',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.Clean_Data(check_ind)) || ...
+            Pipeline_check.Clean_Data(check_ind) < Pipeline_check.ReadRawFACEDFiles(check_ind) 
         try
-            Clean_Data(DataFolder)
+            % temp
+            x = who('-file', [DataFolder filesep 'AcqInfos.mat']);
+            if ~ismember('CleanData', x)
+                Clean_Data(DataFolder)
+            end
+            clear x 
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
+            Pipeline_check.Clean_Data(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('Clean_Data done!')
         catch
-            disp([current_step ' Error!'])
+            disp('Clean_Data Error!')
             continue
         end
     else
-        disp([current_step ' already done.'])
-        patch_code(DataFolder)
+        disp( 'Clean_Data already done.')
+        % patch_code(DataFolder)
     end
+% continue
 
-
-    % vessel diameter
-    current_step = 'Vessel_Diameter';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind))
+    % % vessel diameter
+    % current_step = 'Vessel_Diameter';
+    exist_step = any(strcmp('Vessel_Diameter',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.Vessel_Diameter(check_ind))
         try
             Diameter_Vessel(DataFolder, 0)
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
+            Pipeline_check.Vessel_Diameter(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('Vessel_Diameter done!')
         catch
-            disp([current_step ' Error!'])
+            disp('Vessel_Diameter Error!')
         end
     else
-        disp([current_step ' already done.'])
+        disp('Vessel_Diameter already done.')
     end
-    
+
+
+    % continue 
 
     % Make ROI for Kymograph
-    current_step = 'ROI_Kymograph';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) || ...
+    % current_step = 'ROI_Kymograph';
+    exist_step = any(strcmp('ROI_Kymograph',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.ROI_Kymograph(check_ind)) || ...
             Pipeline_check.ROI_Kymograph(check_ind) < Pipeline_check.Clean_Data(check_ind) % hardcoded
         try
-            ROI_Kymograph(DataFolder);
+            %temp
+            if ~exist([DataFolder filesep 'kymoROI_1.mat'], 'file')
+                ROI_Kymograph(DataFolder);
+            end
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
+            Pipeline_check.ROI_Kymograph(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('ROI_Kymograph done!')
         catch
-            disp([current_step ' Error!'])
+            disp('ROI_Kymograph Error!')
             % continue
         end
     else
-        disp([current_step ' already done.'])
+        disp('ROI_Kymograph already done.')
     end
 
 
     % Plot Kymograph
-    current_step = 'Plot_Kymograph';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) || ...
-            Pipeline_check.Plot_Kymograph(check_ind) < Pipeline_check.ROI_Kymograph(check_ind) % hardcoded
+    % current_step = 'Plot_Kymograph';
+    exist_step = any(strcmp('Plot_Kymograph',Pipeline_check.Properties.VariableNames));
+    if ~exist_step || isnat(Pipeline_check.Plot_Kymograph(check_ind)) || ...
+            Pipeline_check.Plot_Kymograph(check_ind) < Pipeline_check.ROI_Kymograph(check_ind) ...% hardcoded
+            || Pipeline_check.Plot_Kymograph(check_ind) < datetime('25-Mar-2025') %temp, because changed est velocity to be in ROI_info
         try
             Make_Kymograph(DataFolder, 1);
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
+            Pipeline_check.Plot_Kymograph(check_ind) = datetime;
             save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
+            disp('Plot_Kymograph done!')
         catch
-            disp([current_step ' Error!'])
+            disp('Plot_Kymograph Error!')
             % continue
         end
     else
-        disp([current_step ' already done.'])
+        disp('Plot_Kymograph already done.')
     end
 
 % continue
@@ -160,50 +190,52 @@ for ind = 129:size(Overview,1)
     % end    
 
     % continue
-    
+
 
     % only do velocimetry/pulsatility for acquisitions that make sense...
     
 
-    % Calculate speed of blood cells
-    current_step = 'Linescan_Velocimetry';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) ||...
-         Pipeline_check.Linescan_Velocimetry(check_ind) < Pipeline_check.Plot_Kymograph(check_ind) % hardcoded
-        try
-            % Linescan_Velocimetry(DataFolder, 'old', 0, 'auto_list', 1); 
-            Linescan_Velocimetry(DataFolder, 'xcorr_range', 0, 'auto_list', 0); 
+    % % % Calculate speed of blood cells
+    % % % current_step = 'Linescan_Velocimetry';
+    % exist_step = any(strcmp('Linescan_Velocimetry',Pipeline_check.Properties.VariableNames));
+    % if ~exist_step || isnat(Pipeline_check.Linescan_Velocimetry(check_ind)) ||...
+    %      Pipeline_check.Linescan_Velocimetry(check_ind) < Pipeline_check.Plot_Kymograph(check_ind) % hardcoded
+    %     try
+    %         % Linescan_Velocimetry(DataFolder, 'old', 0, 'auto_list', 1); 
+    %         Linescan_Velocimetry(DataFolder, 'xcorr_range', 0, 'auto_list', 0); 
+    %         Linescan_Velocimetry(DataFolder, 'fft', 0, 'auto_list', 0); 
+    % 
+    %         Pipeline_check.Linescan_Velocimetry(check_ind) = datetime;
+    %         save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
+    %         disp( 'Linescan_Velocimetry done!')
+    % 
+    %     catch
+    %         disp('Linescan_Velocimetry Error!')
+    %     end
+    % else
+    %     disp('Linescan_Velocimetry already done.')
+    % end
+    % 
+    % % Calculate pulsatility
+    % % current_step = 'Pulsatility';
+    % exist_step = any(strcmp('Pulsatility',Pipeline_check.Properties.VariableNames));
+    % if ~exist_step || isnat(Pipeline_check.Pulsatility(check_ind)) ||...
+    %         Pipeline_check.Pulsatility(check_ind) < Pipeline_check.Linescan_Velocimetry(check_ind) % hardcoded
+    %     try
+    %         [pulsatility_output] = Pulsatility_Index(DataFolder, 'xcorr_range', 1, 'auto_list', 0);
+    %         [pulsatility_output] = Pulsatility_Index(DataFolder, 'fft', 1, 'auto_list', 1);
+    % 
+    %         Pipeline_check.Pulsatility(check_ind) = datetime;
+    %         save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
+    %         disp('Pulsatility done!')
+    %     catch
+    %         disp('Pulsatility Error!')
+    %     end
+    % else
+    %     disp('Pulsatility already done.')
+    % end
+    % 
 
-            Pipeline_check.(current_step)(check_ind) = datetime;
-            save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
-
-        catch
-            disp([current_step ' Error!'])
-        end
-    else
-        disp([current_step ' already done.'])
-    end
-
-    % Calculate pulsatility
-    current_step = 'Pulsatility';
-    exist_step = any(strcmp(current_step,Pipeline_check.Properties.VariableNames));
-    if ~exist_step || isnat(Pipeline_check.(current_step)(check_ind)) ||...
-            Pipeline_check.Pulsatility(check_ind) < Pipeline_check.Linescan_Velocimetry(check_ind) % hardcoded
-        try
-            [pulsatility_output] = Pulsatility_Index(DataFolder, 'xcorr_range', 1, 'auto_list', 1);
-
-            Pipeline_check.(current_step)(check_ind) = datetime;
-            save([SaveDirectory, 'Overview.mat'], 'Pipeline_check', '-append')
-            disp([current_step ' done!'])
-        catch
-            disp([current_step ' Error!'])
-        end
-    else
-        disp([current_step ' already done.'])
-    end
-
- 
     % % continue
     % % Plot of transitioning cells through a 2D plunging vessel scan
     % current_step = '2D_plunging';
@@ -223,19 +255,27 @@ for ind = 129:size(Overview,1)
     % end
 
 
+    % Determine vessel type
+    
 
 end
 
 
 %% For all Acquisitions:
-UpdateOverview(Overview, SaveDirectory)
-load([SaveDirectory 'Overview.mat'], 'Overview')
+try 
+    UpdateOverview(Overview, SaveDirectory)
+    load([SaveDirectory 'Overview.mat'], 'Overview')
+catch
+    disp('CHECK IF YOU HAVE ENOUGH SPACE!!!!! PROBABLY NOT!!')
+    save([BackupDirectory filesep 'Overview_backup_' num2str(day(datetime)) '-' num2str(month(datetime)) '-' num2str(year(datetime)) '_XXX.mat'], 'Overview', 'Pipeline_check')
+end
 
 % update results per mouse
 % UpdateResults('D:\FACED\Raw Data\M01\', SaveDirectory);
 % UpdateResults('D:\FACED\Raw Data\M02\', SaveDirectory);
-[Results] = UpdateResults(SaveDirectory, {'M03'});
-[Results] = UpdateResults(SaveDirectory, {'M04'});
+% [Results] = UpdateResults(SaveDirectory, {'M03'});
+% [Results] = UpdateResults(SaveDirectory, {'M14'});
+[Results] = UpdateResults(SaveDirectory, unique(Overview.Mouse));
 
 
 %% Plot things
@@ -249,8 +289,39 @@ load([SaveDirectory 'Results.mat'], 'Results')
 
 
 figure('Color',  'white'); tiledlayout('flow')
-Scatter_TAC_Sham(Results, 'Diameter', 'MeanVelocity', 1, 1); % as tile, tilenr
-Scatter_TAC_Sham(Results, 'MeanVelocity', 'Pulsatility', 1, 2);
-Scatter_TAC_Sham(Results, 'Diameter', 'Pulsatility', 1, 3);
+Scatter_TAC_Sham(Results, 'Diameter', 'MeanVelocity_fft', 1, 1); % as tile, tilenr
+Scatter_TAC_Sham(Results, 'Diameter', 'MeanVelocity_xcorr', 1, 2); % as tile, tilenr
+Scatter_TAC_Sham(Results, 'MeanVelocity_fft', 'Pulsatility_fft', 1, 3);
+Scatter_TAC_Sham(Results, 'MeanVelocity_xcorr', 'Pulsatility_xcorr', 1, 4);
+Scatter_TAC_Sham(Results, 'Diameter', 'Pulsatility_fft', 1, 5);
+Scatter_TAC_Sham(Results, 'Diameter', 'Pulsatility_xcorr', 1, 6);
 
-Boxplot_TAC_Sham(Results)
+Boxplot_TAC_Sham(Results, '')
+Boxplot_TAC_Sham(Results, 'Pulsatility_fft', 'Vessel')
+
+Results = Results(Results.Diameter<5,:);
+
+
+%% proof surgery worked
+% import TACstats
+TACstats.Mouse = cellstr(TACstats.Mouse);
+
+for indMouse = 1:size(TACstats,1)
+    try
+        tempind = find(ismember(Results.Mouse, TACstats.Mouse{indMouse}));
+        tempind = tempind(1);
+        TACstats.Markertype(indMouse) = Results.Markertype(tempind);
+    catch
+        TACstats.Markertype(indMouse) = {'hexagram'};
+    end
+end
+
+figure('Color',  'white'); tiledlayout('flow')
+% Boxplot_TAC_Sham(TACstats, 'HW_BW', 'Sex', 1, 1);  % as tile, tilenr
+% ylabel('heartweight (mg)/bodyweight (g)')
+Boxplot_TAC_Sham(TACstats, 'HW_BW', [], 1, 2);  % as tile, tilenr
+ylabel('heartweight (mg)/bodyweight (g)')
+
+% Stats
+[h, p] = ttest2(TACstats(TACstats.Group == 'TAC',:).HW_BW, TACstats(TACstats.Group == 'Sham',:).HW_BW);
+title(['p = ' num2str(p)])

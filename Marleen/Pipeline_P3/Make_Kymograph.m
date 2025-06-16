@@ -44,12 +44,13 @@ end
 %% load data
 load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream');
 
+%% linescan
 if AcqInfoStream.height <= 1
     disp('Plot_kymograph already done within Clean_Data because it is a linescan')
-    
+
     load([DataFolder 'kymoROI_1.mat'], 'kymoImg');
     f2 = figure;
-    lengthkymo = round(AcqInfoStream.FrameRateHz/2);
+    lengthkymo = round(AcqInfoStream.FrameRateHzLinescan/2);
     imagesc(kymoImg(1:lengthkymo,:)')
 
     % get right x axis
@@ -57,8 +58,8 @@ if AcqInfoStream.height <= 1
     % xticks(0:AcqInfoStream.FrameRateHz:lengthkymo);
     % xticklabels(0:Acq_sec);
     % xlabel('Seconds');
-    Acq_msec = lengthkymo/AcqInfoStream.FrameRateHz*1000;
-    xticks(0:AcqInfoStream.FrameRateHz/10:lengthkymo); % this and next line needs to be 1000
+    Acq_msec = lengthkymo/AcqInfoStream.FrameRateHzLinescan*1000;
+    xticks(0:AcqInfoStream.FrameRateHzLinescan/10:lengthkymo); % this and next line needs to be 1000
     xticklabels(0:100:Acq_msec);
     xlabel('Milliseconds');
 
@@ -68,276 +69,487 @@ if AcqInfoStream.height <= 1
     pause(5)
     close(f2)
 
-    
+    ROI_list = {'kymoROI_1.mat'};
+    % return
+    % end
 
-    return
+
+    %% 2D scan
+else % if the scan is a 2D scan
+
+    datSize = [AcqInfoStream.ny+AcqInfoStream.ny_extra AcqInfoStream.nx];
+
+    % % with orignal data (incl mirror)
+    % load([DataFolder 'morphology_img.mat'], 'av_image_og', 'proportion_XY_ax');
+    % av_image = av_image_og;
+
+    % with cropped data averaged over y axis
+    load([DataFolder 'morphology_img.mat'], 'av_image');
+    load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream');
+    proportion_XY_ax = [1 AcqInfoStream.pxl_sz_x/AcqInfoStream.pxl_sz_y_avged 1];
+
+    if exist([DataFolder 'faced.dat'], 'file')
+        fid = fopen([DataFolder 'faced.dat']);
+        dat = fread(fid, inf, '*single');
+        fclose(fid);
+        dat = reshape(dat, size(av_image,1), size(av_image,2), []);
+
+        % Go per roi
+        for ind_ROI = 1:length(ROI_list)
+            currentROI = ROI_list{ind_ROI};
+            warning('off')
+            load([DataFolder currentROI], 'kymoImg', 'ROI_type');
+            warning('on')
+
+            if exist('kymoImg', 'var') && overwrite == 0
+                disp('ROI kymoimg already made, skipped.')
+                clear Coor kymoImg ROI_type
+                continue
+            end
+
+            % Get diameter, pixelsize, theta. Also saves this in currentROI
+            % [theta, pxlSize] = Vessel_Diameter_Pixelsize(currentROI, av_image, pxlX,pxlY,AcqInfoStream.Vessel,1,0,[1 2]);
+            % [theta, pxlSize] = Vessel_Diameter_Pixelsize(currentROI, av_image, AcqInfoStream.pxl_sz_x,AcqInfoStream.pxl_sz_y,AcqInfoStream.Vessel,1,0,[1 2]);
+
+            if ~exist('ROI_type', 'var') %means it's done by fiji
+                ROI_type = 'Fiji';
+            end
+            disp('roitype')
+            switch ROI_type
+
+                case {'line', 'perpendicular_line', 'linescan'}
+                    load([DataFolder currentROI], 'ROI_info');
+                    roi_pixels = ROI_info.roi_pixels;
+                    Coor = ROI_info.Coor;
+
+                    kymoImg = zeros(size(dat,3), length(roi_pixels));
+                    for frmIndx = 1:size(dat,3)
+                        current_frame = dat(:,:,frmIndx);
+                        kymoImg(frmIndx,:) = current_frame(roi_pixels);
+                    end
+
+                    clear current_frame frmIndx pxlIndx
+
+                    f1 = figure;
+                    lengthkymo = round(AcqInfoStream.FrameRateHz/2);
+                    imagesc(kymoImg(1:lengthkymo,:)')
+                    colormap('gray');
+
+                    % get right x axis
+                    Acq_sec = lengthkymo/AcqInfoStream.FrameRateHz;
+                    xticks(0:AcqInfoStream.FrameRateHz:lengthkymo);
+                    xticklabels(0:Acq_sec);
+                    xlabel('Seconds');
+
+                    close(f1)
+
+                case 'automatic'
+                    load([DataFolder currentROI], 'ROI_info');
+                    mask = ROI_info.mask;
+                    % load([DataFolder currentROI], 'mask');
+
+                    mask(mask == 0) = NaN;
+                    kymoImg = dat.*mask;
+                    kymoImg = mean(kymoImg, 1, 'omitnan'); % mean over y axis
+                    kymoImg = reshape(kymoImg, datSize(2), []);
+                    kymoImg = kymoImg(~isnan(kymoImg(:,1)),:);
+                    kymoImg = kymoImg'; % to make sure all roi types are the same
+                    f1 = figure;
+                    imagesc(kymoImg)
+                    colormap('gray')
+                    close(f1)
+
+                case {'block', 'block_fixed_height'}
+                    load([DataFolder currentROI], 'ROI_info');
+                    roiY = ROI_info.roiY;
+                    roiX = ROI_info.roiX;
+                    block_height_um = ROI_info.block_height_um;
+                    % load([DataFolder currentROI], 'roiY', 'roiX', 'block_height_um');
+
+                    kymoImg = mean(dat(roiY(1):roiY(2), roiX(1):roiX(2),:), 1);
+                    kymoImg = reshape(kymoImg, [], size(dat, 3))';
+
+                    f1 = figure;
+                    imagesc(kymoImg(1:300,:)');
+                    colormap('gray');
+                    title('block roi')
+                    subtitle([num2str(roiY(2)-roiY(1)) ' points in y, over ' num2str(block_height_um) ' um'])
+                    close(f1)
+
+                case 'perpendicular_block'
+                    load([DataFolder currentROI], 'ROI_info');
+                    roiY = ROI_info.roiY;
+                    roiX = ROI_info.roiX;
+                    % load([DataFolder currentROI], 'roiY', 'roiX');
+
+                    kymoImg = mean(dat(roiY(1):roiY(2), roiX(1):roiX(2),:), 2);
+                    kymoImg = reshape(kymoImg, [], size(dat, 3))';
+
+                    f1 = figure;
+                    imagesc(kymoImg(1:300,:)');
+                    colormap('gray');
+                    title('perpendicular block roi')
+                    % subtitle([num2str(roiY(2)-roiY(1)) ' points in y, over ' num2str(block_height_um) ' um'])
+                    close(f1)
+
+                case 'Fiji'
+                    % dont make it in fiji
+            end
+
+            save([DataFolder currentROI], 'kymoImg', '-append')
+
+            disp(['Kymograph made for ' currentROI])
+            clear Coor kymoImg ROI_type roiY roiX
+        end
+
+    else
+        disp('Faced.dat does not exist.')
+
+    end
+
+    if PlotOverview
+        disp('plotoverview')
+        %% All together
+        % have to redo the ROI_list, because if you specified one roi your list
+        % will be only one
+        seps = strfind(DataFolder, filesep);
+        ROI_list = dir([DataFolder 'kymoROI*.mat']);
+        ROI_list = struct2cell(ROI_list);
+        ROI_list = ROI_list(1,:);
+
+        f2 = figure;
+        t = tiledlayout(3,size(ROI_list,2));
+        nexttile([1,size(ROI_list, 2)])
+        imagesc(av_image)
+        ax = gca;
+        ax.DataAspectRatio = proportion_XY_ax;
+        colormap('gray')
+        title([DataFolder(seps(end-2)+1:seps(end-1)-1) ' ' DataFolder(seps(end-1)+1:seps(end)-1)])
+
+        for ind_ROI = 1:length(ROI_list)
+            warning('off')
+            % load([DataFolder 'kymoROI_' num2str(ind_ROI) '.mat'], 'kymoImg', 'ROI_type', 'Coor', 'roi_pixels')
+            load([DataFolder ROI_list{ind_ROI}], 'kymoImg', 'ROI_type', 'ROI_info')
+            warning('on')
+
+            % show ROI
+            nexttile(size(ROI_list,2)+ind_ROI)
+            ROI_image = av_image;
+            if contains(ROI_type, 'block')
+                ROI_image(ROI_info.Coor(:,2), ROI_info.Coor(:,1)) = 0;
+            elseif contains(ROI_type, 'line') || matches(ROI_type, 'automatic')
+                ROI_image(ROI_info.roi_pixels) = 0;
+            end
+            imagesc(ROI_image)
+
+            % show kymograph of roi
+            nexttile(size(ROI_list,2)*2+ind_ROI)
+            % imagesc(kymoImg(1:round(AcqInfoStream.FrameRateHz/2),:)')
+            lengthkymo = round(AcqInfoStream.FrameRateHz/2);
+            imagesc(kymoImg(1:lengthkymo,:)')
+
+            % get right x axis
+            % Acq_sec = lengthkymo/AcqInfoStream.FrameRateHz;
+            % xticks(0:AcqInfoStream.FrameRateHz:lengthkymo);
+            % xticklabels(0:Acq_sec);
+            % xlabel('Seconds');
+            Acq_msec = lengthkymo/AcqInfoStream.FrameRateHz*1000;
+            xticks(0:AcqInfoStream.FrameRateHz/10:size(kymoImg,1)); % this times next line needs to be 1000
+            xticklabels(0:100:Acq_msec);
+            xlabel('Milliseconds');
+
+            colormap('gray');
+            title(ROI_type, 'Interpreter','none')
+
+
+            if contains(ROI_type, 'block')
+                % load([DataFolder 'kymoROI_' num2str(ind_ROI) '.mat'], 'roiY')
+                % load([DataFolder ROI_list{ind_ROI}], 'roiY')
+                % subtitle([num2str(roiY(2)-roiY(1)) ' points in y'])
+                subtitle([num2str(ROI_info.roiY(2)-ROI_info.roiY(1)) ' points in y, over ' num2str(ROI_info.block_height_um) ' um'], 'Interpreter','none')
+
+            end
+
+            % if contains(ROI_type, 'line') && ~isfield(ROI_info, 'calculate_velocity')
+            %     answer = questdlg('Is this kymograph good enough for velocity calculation?');
+            %     ROI_info.calculate_velocity = answer;
+            %     save([DataFolder ROI_list{ind_ROI}], 'ROI_info', '-append')
+            %     clear answer
+            % end
+        end
+
+        % saveas(f2, [DataFolder 'Kymograph_overview.png'], 'png');
+        savefig([DataFolder 'Kymograph_overview.fig']);
+        pause(5)
+        close(f2)
+        % waitfor(f2)
+
+    end
+
 end
 
-datSize = [AcqInfoStream.ny+AcqInfoStream.ny_extra AcqInfoStream.nx];
 
-% % with orignal data (incl mirror)
-% load([DataFolder 'morphology_img.mat'], 'av_image_og', 'proportion_XY_ax');
-% av_image = av_image_og;
-
-% with cropped data averaged over y axis
-load([DataFolder 'morphology_img.mat'], 'av_image');
-load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream');
-proportion_XY_ax = [1 AcqInfoStream.pxl_sz_x/AcqInfoStream.pxl_sz_y_avged 1];
-
-fid = fopen([DataFolder 'faced.dat']);
-dat = fread(fid, inf, '*single');
-fclose(fid);
-dat = reshape(dat, size(av_image,1), size(av_image,2), []);
-
-% %% Filter -- temp CHECK
-% for ind = 1:size(dat,3)
-%     dat(:,:,ind) = imbilatfilt(mat2gray(dat(:,:,ind)),0.1,2);
-% end
-
-%% Go per roi
+%% part 2, Get information for velocity calculation
+clear AcqInfoStream av_image currentROI dat datSize fid proportion_XY_ax
 for ind_ROI = 1:length(ROI_list)
-    currentROI = ROI_list{ind_ROI};
+    clear AcqInfoStream kymoImg ROI_type ROI_info PixelSize pxlSize
+    disp('part2')
+    ROIname = ROI_list{ind_ROI};
     warning('off')
-    load([DataFolder currentROI], 'kymoImg', 'ROI_type');
+    load([DataFolder ROIname], 'kymoImg', 'ROI_type', 'ROI_info', 'PixelSize')
+    load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
     warning('on')
 
-    if exist('kymoImg', 'var') && overwrite == 0
-        disp('ROI kymoimg already made, skipped.')
-        clear Coor kymoImg ROI_type 
+    if matches(ROI_type, 'linescan')
+        frmRate = AcqInfoStream.FrameRateHzLinescan;
+    else
+        frmRate = AcqInfoStream.FrameRateHz;
+    end
+
+    %% pixelsize
+    if ~exist('PixelSize', 'var')
+        [PixelSize] = Pixelsize_ROI(DataFolder, ROIname);
+    end
+    pxlSize = PixelSize.pxlSize;
+    clear PixelSize
+
+    % %% temp patch
+    % clear Velocity_calc
+    % warning('off')
+    %     load([DataFolder ROIname], 'Velocity_calc')
+    % warning('on')
+    % if exist('Velocity_calc', 'var') && isfield(Velocity_calc, 'est_mm_per_sec')
+    %     ROI_info.est_mm_per_sec = Velocity_calc.est_mm_per_sec;
+    %     ROI_info.skipamt = Velocity_calc.skipamt;
+    %     ROI_info.orientation = Velocity_calc.orientation;
+    %      try % patch in a patch! wonderful code marleen
+    %          ROI_info.est_frames_to_cross_kymo = Velocity_calc.est_frames_to_cross_kymo;
+    %      catch % temp patch
+    %          ROI_info.est_frames_to_cross_kymo = 4*ROI_info.skipamt;
+    %      end
+    % end
+    % %% end patch
+
+
+    % 1. is the kymo good enough for velocity calculation?
+    if ~isfield(ROI_info, 'calculate_velocity') || matches(ROI_info.calculate_velocity, 'Cancel') || overwrite == 1
+        f1 = figure; tiledlayout('vertical');
+        nexttile; imagesc(kymoImg(1:round(frmRate/2),:)'); colormap('gray')
+        nexttile; imagesc(kymoImg(1:round(frmRate),:)');
+        nexttile; imagesc(kymoImg');
+        f1.Position = [50 100 1500 200];
+        answer = questdlg('Is this kymograph good enough for velocity calculation?');
+        ROI_info.calculate_velocity = answer;
+        close(f1)
+        save([DataFolder ROIname], 'ROI_info', '-append')
+        clear answer
+    end
+
+    if matches(ROI_info.calculate_velocity, 'No')
+        disp([ROIname ' not good enough for velocity calculation - skipped.']);
+        disp('If this is wrong, change ROI_info.calculate_velocity.')
         continue
     end
 
-    % Get diameter, pixelsize, theta. Also saves this in currentROI
-    % [theta, pxlSize] = Vessel_Diameter_Pixelsize(currentROI, av_image, pxlX,pxlY,AcqInfoStream.Vessel,1,0,[1 2]);
-    % [theta, pxlSize] = Vessel_Diameter_Pixelsize(currentROI, av_image, AcqInfoStream.pxl_sz_x,AcqInfoStream.pxl_sz_y,AcqInfoStream.Vessel,1,0,[1 2]);    
+    % 2. Identify orientation
+    % get number of frames to skip for correlation and identify orientation
+    % Do this after cleaning up kymo so it's easier to see
+    % options of calculations are "whole" for estimating how long one rbc
+    % takes to cross the entire kymo, or "part" where you can take two
+    % points.
+    kymoImg = movmean(kymoImg, 20, 1);
 
-    if ~exist('ROI_type', 'var') %means it's done by fiji
-        ROI_type = 'Fiji';
-    end
-
-    switch ROI_type
-        % case 'linescan'
-        %     shapedat = size(dat);
-        %     dat = permute(dat, [1, 3, 2]);
-        %     dat = reshape(dat, [], shapedat(2));
-        %     kymoImg = dat;
-        %     save([DataFolder currentROI], 'shapedat', '-append')
-
-        case {'line', 'perpendicular_line', 'linescan'}
-            load([DataFolder currentROI], 'ROI_info');
-            roi_pixels = ROI_info.roi_pixels;
-            Coor = ROI_info.Coor;
-
-            % kymoImg = zeros(size(dat,3), size(Coor,1));
-            kymoImg = zeros(size(dat,3), length(roi_pixels));
-            for frmIndx = 1:size(dat,3)
-                current_frame = dat(:,:,frmIndx);
-                kymoImg(frmIndx,:) = current_frame(roi_pixels);
-                % for pxlIndx = 1:size(Coor,1)
-                %     kymoImg(frmIndx, pxlIndx) = current_frame(Coor(pxlIndx,2), Coor(pxlIndx,1));
-                % end
-            end
-            
-            clear current_frame frmIndx pxlIndx 
-
-            f1 = figure;
-            lengthkymo = round(AcqInfoStream.FrameRateHz/2);
-            imagesc(kymoImg(1:lengthkymo,:)')
-            colormap('gray');
-
-            % get right x axis
-            Acq_sec = lengthkymo/AcqInfoStream.FrameRateHz;
-            xticks(0:AcqInfoStream.FrameRateHz:lengthkymo);
-            xticklabels(0:Acq_sec);
-            xlabel('Seconds');
-
-            close(f1)
-
-        case 'automatic'
-            load([DataFolder currentROI], 'ROI_info');
-            mask = ROI_info.mask;
-            % load([DataFolder currentROI], 'mask');
-
-            mask(mask == 0) = NaN;
-            kymoImg = dat.*mask;
-            kymoImg = mean(kymoImg, 1, 'omitnan'); % mean over y axis
-            kymoImg = reshape(kymoImg, datSize(2), []);
-            kymoImg = kymoImg(~isnan(kymoImg(:,1)),:);
-            kymoImg = kymoImg'; % to make sure all roi types are the same
-            f1 = figure;
-            imagesc(kymoImg)
-            colormap('gray')
-            close(f1)
-
-        case {'block', 'block_fixed_height'}
-                        load([DataFolder currentROI], 'ROI_info');
-            roiY = ROI_info.roiY;
-            roiX = ROI_info.roiX;
-            block_height_um = ROI_info.block_height_um;
-            % load([DataFolder currentROI], 'roiY', 'roiX', 'block_height_um');
-
-            kymoImg = mean(dat(roiY(1):roiY(2), roiX(1):roiX(2),:), 1);
-            kymoImg = reshape(kymoImg, [], size(dat, 3))';
-
-            f1 = figure;
-            imagesc(kymoImg(1:300,:)');
-            colormap('gray');
-            title('block roi')
-            subtitle([num2str(roiY(2)-roiY(1)) ' points in y, over ' num2str(block_height_um) ' um'])
-            close(f1)
-            
-        case 'perpendicular_block'
-            load([DataFolder currentROI], 'ROI_info');
-            roiY = ROI_info.roiY;
-            roiX = ROI_info.roiX;
-            % load([DataFolder currentROI], 'roiY', 'roiX');
-
-            kymoImg = mean(dat(roiY(1):roiY(2), roiX(1):roiX(2),:), 2);
-            kymoImg = reshape(kymoImg, [], size(dat, 3))';
-
-            f1 = figure;
-            imagesc(kymoImg(1:300,:)');
-            colormap('gray');
-            title('perpendicular block roi')
-            % subtitle([num2str(roiY(2)-roiY(1)) ' points in y, over ' num2str(block_height_um) ' um'])
-            close(f1)
-
-        case 'Fiji'
-            % Open ImageJ/Fiji
-            % Load the sum.tiff or sum.png file
-            % Hold the line button down to make a line ROI by hand (freestyle)
-            % Draw the ROI along the vessel
-            % File - Save As - Selection - name.roi
-
-            % ROIlist = dir(fullfile(ROIpath, [datName,'*.zip']));
-            % if isempty (ROIlist)
-            %     ROIlist = dir(fullfile(ROIpath, '*.roi'));
-            % end
-            % 
-            % if isempty(ROIlist) %MB: if your roi list is empty
-            %     disp('no roi found')
-            %     return
-            %     % write code to get ROI
-            % end
-            % 
-            % ROIname = ROIlist(1).name;
-            % sROI = ReadImageJROI( fullfile(ROIpath,ROIname)); % load imageJ ROIs
-            % if strcmp(ROIname(end-3:end),'.roi')
-            %     tmpROI = sROI;
-            %     sROI = cell(1,1);
-            %     sROI{1} = tmpROI;
-            % end
-            % 
-            % % MB: sROI are structures with information about the ROI, but
-            % % only need Coor.
-            % for ROIindx = 1:length(sROI)
-            %     Coor = sROI{ROIindx}.mnCoordinates;
-            %     Coor = Coor( Coor(:,1)>0 & Coor(:,2)>0, :);
-            % 
-            %     kymoImg = zeros(size(dat,3), size(Coor,1));
-            %     for frmIndx = 1:1:size(dat,3)
-            %         current_frame = dat(:,:,frmIndx);
-            %         for pxlIndx = 1:1:size(Coor,1)
-            %             kymoImg(frmIndx, pxlIndx) = current_frame(Coor(pxlIndx,2), Coor(pxlIndx,1));
-            %         end
-            %     end
-            % 
-            %     % MB: save, take name of mouse/acq, add _kymoROI and then
-            %     % the roi index, so that each roi has a seperate file
-            %     % example name: '20200302_47_D430_kymoROI01.tif'
-
-            % end
-    end
-
-    % Save kymograph
-    % kymoName = sprintf('%s_kymoROI%02d.tif',datName,ROIindx);
-    % imwrite(kymoImg,fullfile(ROIpath, kymoName));
-    save([DataFolder currentROI], 'kymoImg', '-append')
-
-    disp(['Kymograph made for ' currentROI])
-    clear Coor kymoImg ROI_type roiY roiX
-
-end
-
-
-if PlotOverview
-    %% All together
-    % have to redo the ROI_list, because if you specified one roi your list
-    % will be only one
-    seps = strfind(DataFolder, filesep);
-    ROI_list = dir([DataFolder 'kymoROI*.mat']); 
-    ROI_list = struct2cell(ROI_list);
-    ROI_list = ROI_list(1,:);
-
-    f2 = figure;
-    t = tiledlayout(3,size(ROI_list,2));
-    nexttile([1,size(ROI_list, 2)])
-    imagesc(av_image)
-    ax = gca;
-    ax.DataAspectRatio = proportion_XY_ax;
-    colormap('gray')
-    title([DataFolder(seps(end-2)+1:seps(end-1)-1) ' ' DataFolder(seps(end-1)+1:seps(end)-1)])
-
-    for ind_ROI = 1:length(ROI_list)
-        warning('off')
-        % load([DataFolder 'kymoROI_' num2str(ind_ROI) '.mat'], 'kymoImg', 'ROI_type', 'Coor', 'roi_pixels')
-        load([DataFolder ROI_list{ind_ROI}], 'kymoImg', 'ROI_type', 'ROI_info')
-        warning('on')
-
-        % show ROI
-        nexttile(size(ROI_list,2)+ind_ROI)
-        ROI_image = av_image;
-        if contains(ROI_type, 'block')
-            ROI_image(ROI_info.Coor(:,2), ROI_info.Coor(:,1)) = 0;
-        elseif contains(ROI_type, 'line') || matches(ROI_type, 'automatic')
-            ROI_image(ROI_info.roi_pixels) = 0;
-        end
-        imagesc(ROI_image)
-
-        % show kymograph of roi
-        nexttile(size(ROI_list,2)*2+ind_ROI)
-        % imagesc(kymoImg(1:round(AcqInfoStream.FrameRateHz/2),:)')
-        lengthkymo = round(AcqInfoStream.FrameRateHz/2);
-        imagesc(kymoImg(1:lengthkymo,:)')
-
-        % get right x axis
-        % Acq_sec = lengthkymo/AcqInfoStream.FrameRateHz;
-        % xticks(0:AcqInfoStream.FrameRateHz:lengthkymo);
-        % xticklabels(0:Acq_sec);
-        % xlabel('Seconds');
-        Acq_msec = lengthkymo/AcqInfoStream.FrameRateHz*1000;
-        xticks(0:AcqInfoStream.FrameRateHz/10:size(kymoImg,1)); % this times next line needs to be 1000
-        xticklabels(0:100:Acq_msec);
-        xlabel('Milliseconds');
-
-        colormap('gray');
-        title(ROI_type, 'Interpreter','none')
-
-
-        if contains(ROI_type, 'block')
-            % load([DataFolder 'kymoROI_' num2str(ind_ROI) '.mat'], 'roiY')
-            % load([DataFolder ROI_list{ind_ROI}], 'roiY')
-            % subtitle([num2str(roiY(2)-roiY(1)) ' points in y'])
-            subtitle([num2str(ROI_info.roiY(2)-ROI_info.roiY(1)) ' points in y, over ' num2str(ROI_info.block_height_um) ' um'], 'Interpreter','none')
-
-        end
-    
-        if contains(ROI_type, 'line') && ~isfield(ROI_info, 'calculate_velocity')
-            answer = questdlg('Is this kymograph good enough for velocity calculation?');
+    if ~isfield(ROI_info, 'est_mm_per_sec') || overwrite == 1
+        try
+            [skipamt, est_frames_to_cross_kymo, ~, est_mm_per_sec] = calc_skip_amount(kymoImg, frmRate, pxlSize, 'part');
+            ROI_info.skipamt = skipamt;
+            ROI_info.est_mm_per_sec = est_mm_per_sec;
+        catch
+            f1 = figure; tiledlayout('vertical');
+            nexttile; imagesc(kymoImg(1:round(frmRate/2),:)'); colormap('gray')
+            nexttile; imagesc(kymoImg(1:round(frmRate),:)');
+            nexttile; imagesc(kymoImg');
+            f1.Position = [50 100 1500 200];
+            answer = questdlg('ARE YOU SURE this kymograph is good enough for velocity calculation?');
             ROI_info.calculate_velocity = answer;
-            save([DataFolder ROI_list{ind_ROI}], 'ROI_info', '-append')
-            clear answer
+            close(f1)
+            save([DataFolder ROIname], 'ROI_info', '-append')
+
+            if matches(answer, 'Yes')
+                [skipamt, est_frames_to_cross_kymo, ~, est_mm_per_sec] = calc_skip_amount(kymoImg, frmRate, pxlSize, 'part');
+                ROI_info.skipamt = skipamt;
+                ROI_info.est_mm_per_sec = est_mm_per_sec;
+            else
+                disp([ROIname ' not good enough for velocity calculation - skipped.']);
+                disp('If this is wrong, change ROI_info.calculate_velocity.')
+                continue
+            end
+
         end
     end
 
-    % saveas(f2, [DataFolder 'Kymograph_overview.png'], 'png');
-    savefig([DataFolder 'Kymograph_overview.fig']);
-    pause(5)
-    close(f2)
-    % waitfor(f2)
+    if ~isfield(ROI_info, 'orientation') || overwrite == 1
+        [orientation] = identify_orientation(kymoImg, frmRate);
+        ROI_info.orientation = orientation;
+        ROI_info.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
+    end
+
+    save([DataFolder ROIname], 'ROI_info',  '-append')
+
+end
+
+
+
+%% ask if you want to delete faced.dat to save room
+if ~exist([DataFolder 'Kymograph_overview.fig'], 'file')
+    disp('No kymograph overview. Nothing deleted.');
+elseif ~exist([DataFolder 'faced.dat'], 'file')
+    disp('Faced.dat does not exist(?)');
+else
+    f1 = openfig([DataFolder 'Kymograph_overview.fig']);
+    f1.Position = [1.8000   49.8000  766.4000  828.8000];
+    answer = questdlg('Can faced.dat be removed?');
+    close(f1)
+
+    if matches(answer, 'Yes')
+        delete([DataFolder 'faced.dat'])
+        disp('Faced.dat deleted.');
+    elseif matches(answer, 'No')
+        disp('Not deleted.')
+    elseif matches(answer, 'Cancel')
+        error('Faced.dat deletion inside make_kymograph canceled.')
+    end
 end
 
 end
+
+
+
+
+function [skipframes, est_frames_to_cross_kymo, est_sec_to_cross_kymo, est_mm_per_sec] = calc_skip_amount(kymoImg, framerate, pixelsize, option)
+
+if exist('option', 'var') && matches(option, 'whole')
+
+    %% skipamt calculation:
+    % if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc
+    % estimate speed
+    f1 = figure; imagesc(kymoImg(1:round(framerate),:)'); colormap('gray');
+    opts.WindowStyle = 'normal';
+    est_frames_to_cross_kymo = inputdlg({'How many frames for rbc to cross the kymograph?'},'input', [1 45], {''}, opts);
+    close(f1);
+    est_frames_to_cross_kymo = str2double(est_frames_to_cross_kymo{1});
+    est_sec_to_cross_kymo = est_frames_to_cross_kymo/framerate;
+    length_um_ROI = size(kymoImg,2)*pixelsize;
+    est_um_per_sec = (1/est_sec_to_cross_kymo)*length_um_ROI;
+    est_mm_per_sec = est_um_per_sec/1000;
+    disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
+
+    if est_frames_to_cross_kymo < 1
+        warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
+            'Either the kymograph ROI is too short, or the acquisition is too ' ...
+            'slow to make an accurate speed calculation.']);
+        skipframes = 1;
+        return
+    end
+
+else
+    %% on a part of the RBC trajectory
+    if size(kymoImg, 1)<round(framerate)
+        f1 = figure; imagesc(kymoImg(:,:)); colormap('gray');
+    else
+        f1 = figure; imagesc(kymoImg(1:round(framerate),:)); colormap('gray');
+    end
+    opts.WindowStyle = 'normal';
+    dlgtitle = 'Estimate speed';
+    prompt = {'Frames over x-axis (space)', 'Frames over y-axis (time)'};
+    fieldsize = [1 45; 1 45];
+    answers = inputdlg(prompt,dlgtitle, fieldsize, {'', ''}, opts);
+
+    close(f1);
+    shift_amt = str2double(answers{1});
+    skipamt = str2double(answers{2});
+    est_um_per_sec = shift_amt*pixelsize*(framerate/skipamt);
+    est_mm_per_sec = est_um_per_sec/1000;
+
+    length_um_ROI = size(kymoImg,2)*pixelsize;
+    est_sec_to_cross_kymo = length_um_ROI/est_um_per_sec;
+    est_frames_to_cross_kymo = (size(kymoImg,2)/shift_amt)*skipamt;
+
+    disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
+
+    if est_frames_to_cross_kymo < 1
+        warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
+            'Either the kymograph ROI is too short, or the acquisition is too ' ...
+            'slow to make an accurate speed calculation.']);
+        skipframes = 1;
+        return
+    end
+
+end
+
+%% calculate number of frames you should skip
+skipframes = round(0.25*est_frames_to_cross_kymo);
+
+if skipframes < 1
+    warning(['Calculated frames to skip was smaller than 1. Adjusted to'...
+        ' 4 but RBCs may be too fast to accurately calculate velocity.']);
+    skipframes = 4;
+elseif skipframes < 5
+    warning('Skipframes was smaller than 5, so kept at 5.')
+    skipframes = 5;
+end
+
+end
+
+
+
+function [orientation] = identify_orientation(kymoImg, framerate)
+
+f1 = figure('Position', [40 60 1000 800]);
+tiledlayout(6,2)
+
+nexttile(1, [1 2]);
+imagesc(kymoImg(:,:)'); colormap('gray');
+title('all')
+
+if size(kymoImg,1)>round(framerate*2)
+    nexttile(3, [1 2]);
+    imagesc(kymoImg(1:round(framerate*2),:)'); colormap('gray');
+    title('2 sec')
+end
+
+if size(kymoImg,1)>round(framerate/2)
+    nexttile(5, [1 2]);
+    imagesc(kymoImg(1:round(framerate/2),:)'); colormap('gray');
+    title('0.5 sec')
+end
+
+nexttile(7, [1 2]);
+imagesc(kymoImg(1:100,:)'); colormap('gray');
+title('100 frames')
+
+nexttile(9, [2 1]);
+plot([1 2], [2 1]);
+title('Forwards')
+
+nexttile(10, [2 1]);
+plot([1 2], [1 2]);
+title('Backwards')
+
+opts.Interpreter = 'none';
+opts.Default = 'Cancel';
+opts.WindowStyle = 'normal';
+orientation = questdlg('Are the RBC moving forwards or backwards?', 'Orientation', 'Forwards', 'Backwards', 'Varies', opts);
+
+if isempty(orientation)
+    return
+end
+
+close(f1);
+end
+
+
+
 
 
 
@@ -400,15 +612,15 @@ end
 % ind = [];
 % label = [];
 % for line_number = 1:size(p1,1)
-% 
+%
 %     % Point coordinates.
 %     p1r = p1(line_number,1);   p1c = p1(line_number,2);
 %     p2r = p2(line_number,1);   p2c = p2(line_number,2);
-% 
+%
 %     % Image dimension.
 %     M = image_size(1); % Number of rows.
 %     N = image_size(2); % Number of columns.
-% 
+%
 %     % Boundary verification.
 %     % A- Both points are out of range.
 %     if  ((p1r < 1 || M < p1r) || (p1c < 1 || N < p1c)) && ...
@@ -417,14 +629,14 @@ end
 %             ' are out of range. New coordinates are requested to fit',...
 %             ' the points in image boundaries.'])
 %     end
-% 
+%
 %     % Reference versors.
 %     % .....r..c.....
 %     eN = [-1  0]';
 %     eE = [ 0  1]';
 %     eS = [ 1  0]';
 %     eW = [ 0 -1]';
-% 
+%
 %     % B- One of the points is out of range.
 %     if (p1r < 1 || M < p1r) || (p1c < 1 || N < p1c) || ...
 %             (p2r < 1 || M < p2r) || (p2c < 1 || N < p2c),
@@ -532,7 +744,7 @@ end
 %     clear alpha beta
 %     continue
 % end
-% 
+%
 % end
 %% commented "raw" version:
 

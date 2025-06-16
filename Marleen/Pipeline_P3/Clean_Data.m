@@ -20,7 +20,7 @@
 % Note: there's a lot of things called "range" in this function. Check per
 % range in the comments what it is for.
 
-function Clean_Data(DataFolder)
+function Clean_Data(DataFolder, num_avs)
 
 if ~strcmp(DataFolder(end), filesep)
     DataFolder = [DataFolder filesep];
@@ -29,7 +29,7 @@ end
 %% load data
 load([DataFolder 'AcqInfos.mat'], 'AcqInfoStream')
 % check if you have a width
-if isstring(AcqInfoStream.width)
+if isstring(AcqInfoStream.width) || AcqInfoStream.width == 0
     error('Width not known in infofile, or saved as string. Fix before running Clean_Data.')
 end
 datSize = [AcqInfoStream.nx, (AcqInfoStream.ny + AcqInfoStream.ny_extra)];
@@ -72,8 +72,10 @@ if AcqInfoStream.height <= 1
     % nexttile
     % imagesc(dat(20:40,1:(AcqInfoStream.FrameRateHz*1064))); colormap('gray')
     
-    % num_avs = 200;
-    num_avs = 100; % new try: 27-2-25
+    if ~exist('num_avs', 'var')
+        % num_avs = 200;
+        num_avs = 100; % new try: 27-2-25
+    end
     kymoImg = zeros(datSize(1), floor(num_of_frames/num_avs));
 
     line_avgs = 1;

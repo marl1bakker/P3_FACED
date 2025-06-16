@@ -40,7 +40,19 @@ if AcqInfoStream.height < 2
         clear AcqInfoStream;
 
         if isfield(info_2dscan, 'Diameter')
-            diams(ind) = info_2dscan.Diameter;
+            if length(info_2dscan.Diameter)>1 % if multiple diameters for one acq, choose right vessel
+                load([DataFolder_2dscan 'morphology_img.mat'], 'av_image');
+                f1 = figure; imagesc(av_image); title([info_2dscan.Mouse ' ' info_2dscan.DatasetName]);
+                f1.Position = [900 100 f1.Position(3) f1.Position(4)];
+                d = msgbox(['Comments from linescan: ' info_linescan.Comments]);
+                d.Position = [800 500 d.Position(3) d.Position(4)];
+                ind_correct_diam = listdlg('PromptString', 'Which vessel diameter is correct?', 'ListString', cellstr(num2str(info_2dscan.Diameter')));
+                diams(ind) = info_2dscan.Diameter(ind_correct_diam);
+                close(f1); close(d);
+
+            else
+                diams(ind) = info_2dscan.Diameter;
+            end
         else
             diams(ind) = calc_diam(DataFolder_2dscan, info_2dscan);
         end
@@ -63,7 +75,25 @@ else
         disp('OVERWRITING DIAMETER ')
     end
 
-    AcqInfoStream.Diameter = calc_diam(DataFolder, AcqInfoStream);
+    % if there are multiple vessels on the pic, you'll calculate multiple
+    % diameters for multiple linescans
+    load([DataFolder 'morphology_img.mat'], 'av_image')
+    f1 = figure; imagesc(av_image)
+    mult_diam_ans = questdlg('Are there multiple vessels?');
+    close(f1); clear av_image
+
+    if matches(mult_diam_ans, 'No')
+        AcqInfoStream.Diameter = calc_diam(DataFolder, AcqInfoStream);
+    else
+        diameters = [];
+        done_ans = 'No';
+        while matches(done_ans, 'No')
+            diameters(end+1) = calc_diam(DataFolder, AcqInfoStream);
+            done_ans = questdlg('Are you done?');
+        end
+        AcqInfoStream.Diameter = diameters;
+    end
+            
     save([DataFolder 'AcqInfos.mat'], 'AcqInfoStream', '-append')
 
 end
@@ -79,11 +109,15 @@ av_image = rescale(av_image);
 
 f1 = figure; imagesc(av_image); colormap('gray')
 % ax = gca; ax.DataAspectRatio = proportion_XY_ax;
-horizontal = questdlg('Is vessel completely horizontal?', '', 'Yes', 'No', 'Cancel', 'Yes');
-close(f1)
-if matches(horizontal, 'Cancel')
+horizontal = questdlg('Is vessel completely horizontal?', '', 'Yes', 'No', 'Manual', 'Yes');
+if isempty(horizontal) % if you clicked cancel
+    diameter = NaN;
     return
 end
+close(f1)
+% if matches(horizontal, 'Cancel')
+%     return
+% end
 
 while matches(good_diam, 'No')
 if matches(horizontal,'Yes')
@@ -117,7 +151,7 @@ if matches(horizontal,'Yes')
     end
     close(f1)
 
-else
+elseif matches(horizontal,'No')
     % draw line perpendicular to vessel
     f1 = figure; imagesc(av_image); 
     title('Draw line perpendicular to vessel.')
@@ -163,12 +197,73 @@ else
     
     good_diam = questdlg('Does it make sense?');
     if matches(good_diam, 'No')
+        horizontal = questdlg('Is vessel completely horizontal?', '', 'Yes', 'No', 'Manual', 'Yes');
+    elseif matches(good_diam, 'Cancel')
+        diameter = NaN;
+        return
+    end
+    close(f1)
+
+elseif matches(horizontal,'Manual')
+    
+      % draw line perpendicular to vessel
+    f1 = figure; imagesc(av_image); 
+    title('Draw line same width as vessel.')
+    % ax = gca; ax.DataAspectRatio = proportion_XY_ax;
+    roi_pixels = drawpolyline;
+    p1(1,:) = round(roi_pixels.Position(1,:));
+    p2(1,:) = round(roi_pixels.Position(2,:));
+
+    close(f1)
+    [roi_pixels, ~] = draw_line(fliplr(p1), fliplr(p2), size(av_image)); % not matlab function (drawline)
+
+    % % get profile
+    % profile = [zeros(1,10) av_image(roi_pixels) zeros(1,10)];
+    % edges = findchangepts(profile, 'MaxNumChanges', 2, 'Statistic', 'linear')-10;
+    % profile = profile(11:end-10);
+
+    % get pixelsize
+    % slope = abs(p2(2)-p1(2))/abs(p2(1)-p1(1));
+    a_pix = abs(p2(2)-p1(2))+1;
+    b_pix = abs(p2(1)-p1(1))+1;
+    % c_pix = length(roi_pixels);
+    a_um = a_pix * AcqInfoStream.pxl_sz_y_avged;
+    b_um = b_pix * AcqInfoStream.pxl_sz_x;
+    diameter = sqrt( a_um^2 + b_um^2 ); % length of roiline in um
+    % c_um = sqrt( a_um^2 + b_um^2 ); % length of roiline in um
+
+    % pix_diam = abs(edges(2)-edges(1));
+    % diameter = c_um*(pix_diam/c_pix);
+
+    % verify/plot
+    f1 = figure; tiledlayout('flow');
+    nexttile
+    % plot(profile); hold on; %xline(edges(1)); xline(edges(2));
+    % nexttile
+    av_im_diam = av_image;
+    av_im_diam(roi_pixels) = NaN;
+    imagesc(av_im_diam);
+    hold on
+    % [r,c]=ind2sub(size(av_image),roi_pixels(edges(1)));
+    % plot(c,r, '+', 'Color', 'red', 'LineWidth', 3);
+    % [r,c]=ind2sub(size(av_image),roi_pixels(edges(2)));
+    % plot(c,r, '+', 'Color', 'red', 'LineWidth', 3);
+    plot(p1(1), p1(2), '+', 'Color', 'red',  'LineWidth', 3)
+    plot(p2(1), p2(2), '+', 'Color', 'red',  'LineWidth', 3)
+    title(['Est. diameter is ' num2str(diameter) ' um'])
+    
+    good_diam = questdlg('Does it make sense?');
+    if matches(good_diam, 'No')
         diameter = NaN;
     elseif matches(good_diam, 'Cancel')
         diameter = NaN;
         return
     end
     close(f1)
+
+elseif matches(horizontal, 'Cancel')
+    error('Canceled diameter_vessel')
+
 end
 end
 end

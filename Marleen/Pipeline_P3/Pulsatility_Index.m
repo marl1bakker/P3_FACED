@@ -7,7 +7,7 @@
 % from scratch.
 % Marleen Bakker 18-10-24 // 23-01-25 // 20-3-25 (PI close to/below 0)
 
-% "method" is the method from linescan_velocimetry that you want to use. 
+% "method" is the method from linescan_velocimetry that you want to use.
 
 function [pulsatility_output] = Pulsatility_Index(DataFolder, method, show_plots, ROIname, overwrite)
 
@@ -68,28 +68,28 @@ for ind_kymo = 1:length(kymograph_list)
     pulsatility_output.Type(ind_kymo) = ROI_type;
 
     %% check if already done
-    if ~exist('Velocity_calc', 'var')
-        disp(['Velocity not found for ' ROIname ' of ' Mouse ', ' Acq '. Run Linescan_Velocimetry first.']);
-        continue
+    if ~exist('Velocity_calc', 'var') || ~isfield(Velocity_calc, method)
+        error(['Velocity not found for ' ROIname ' of ' Mouse ', ' Acq '. Run Linescan_Velocimetry first.']);
+        % continue
 
     elseif ~contains(ROI_type, 'line') || matches(ROI_info.calculate_velocity, 'No')
         % skip if it's a block ROI (didnt make code for that yet) or if you
         % indicated the kymo is not good enough for velocity calculation
         continue
 
-    elseif exist('Pulsatility_calc', 'var') && isfield(Velocity_calc, method) ...
+    elseif exist('Pulsatility_calc', 'var') && isfield(Pulsatility_calc, method) ...
             && overwrite == 0
         disp(['Pulsatility already calculated for ' ROIname ' ' Mouse ' ' Acq '. ROI skipped.'])
 
-        pulsatility_output.PI_mean(ind_kymo) = mean(Pulsatility_calc.PI, 'omitnan');
-        pulsatility_output.PI_median(ind_kymo) = median(Pulsatility_calc.PI, 'omitnan');
-        pulsatility_output.Heartbeat(ind_kymo) = Pulsatility_calc.heartbeat;
+        pulsatility_output.PI_mean(ind_kymo) = mean(Pulsatility_calc.(method).PI, 'omitnan');
+        pulsatility_output.PI_median(ind_kymo) = median(Pulsatility_calc.(method).PI, 'omitnan');
+        pulsatility_output.Heartbeat(ind_kymo) = Pulsatility_calc.(method).heartbeat;
         continue
 
-    elseif exist('Pulsatility_calc', 'var') && isfield(Velocity_calc, method) ...
+    elseif exist('Pulsatility_calc', 'var') && isfield(Pulsatility_calc, method) ...
             && overwrite == 1
         disp(['Pulsatility already calculated for ' ROIname ' ' Mouse ' ' Acq '. OVERWRITING PULSATILITY CALCULATIONS.'])
-        
+
     end
 
     %% load parameters
@@ -97,6 +97,14 @@ for ind_kymo = 1:length(kymograph_list)
         vel = Velocity_calc.(method).raw_velocity;
     else
         vel = Velocity_calc.(method).velocity;
+    end
+
+    if size(vel,1) < size(vel,2)
+        vel = vel';
+    end
+
+    if mean(vel, 'omitnan') < 0
+        vel = vel * -1;
     end
 
     if isfield(AcqInfoStream, 'FrameRateHzLinescan')
@@ -115,11 +123,11 @@ for ind_kymo = 1:length(kymograph_list)
         badvals = find(isnan(vel));
     end
 
- 
-    
+
+
     %% Fit curve
     % disp('Fitting curve over velocity...');
-    % seconds = size(kymoImg, 1)/frmRate; 
+    % seconds = size(kymoImg, 1)/frmRate;
     % time = linspace(0,seconds,length(vel))';
     % opts = fitoptions('Method', 'SmoothingSpline');
     % % opts.Exclude = find(badvals);
@@ -149,11 +157,11 @@ for ind_kymo = 1:length(kymograph_list)
 
     b = waitbar(0, 'Fitting curve...');
     periodsecs = 2; % take 2 sec to fit curve on
-    periodfrms = frmRate*periodsecs; 
+    periodfrms = frmRate*periodsecs;
     start_frame = 1;
     yFitted = NaN(size(vel));
     for indperiod = 1:floor(length(vel)/periodfrms)
-        end_frame = start_frame+round(periodfrms);
+        end_frame = start_frame+round(periodfrms)-1;
 
         periodvel = vel(start_frame:end_frame);
         time = linspace(start_frame/frmRate, (start_frame/frmRate)+periodsecs, ...
@@ -165,19 +173,19 @@ for ind_kymo = 1:length(kymograph_list)
         [curve, ~] = fit(time,periodvel, "SmoothingSpline", opts);
         yFitted(start_frame:end_frame) = feval(curve, time);
 
-        start_frame = round(start_frame+periodfrms+1);
+        start_frame = round(start_frame+periodfrms);
 
         waitbar(indperiod/(floor(length(vel)/periodfrms)), b);
     end
     close(b);
 
-    secs = size(kymoImg, 1)/frmRate; 
+    secs = length(vel)/frmRate;
     time = linspace(0,secs,length(vel))';
 
     % get peaks
     [pks, indx] = findpeaks(yFitted, 'MinPeakDistance',1/(700/60)*frmRate); % assume heartbeat < 700 (700 would already be way too high for anesthetized mouse)
     av_heart_beat = length(pks)/secs*60;
-    
+
     % % check
     % figure;plot(time, vel);
     % hold on; plot(time,yFitted);
@@ -197,7 +205,10 @@ for ind_kymo = 1:length(kymograph_list)
 
     % get pulsatility index
     PI = NaN(size(pks));
-    for ind = 1:size(pks)-1
+    if size(pks)<1
+        error('Peaks not detected')
+    end
+    for ind = 1:length(pks)-1
         % take peak, find low, calculate average
         peak = pks(ind);
         heartcycle = yFitted(indx(ind):indx(ind+1)-1);
@@ -207,17 +218,17 @@ for ind_kymo = 1:length(kymograph_list)
         if peak<0 || av_heartcycle<0.1 % if the peak is below 0, the entire heartbeat should be reversed so this doesnt make sense
             continue
         end
-        
+
         % if av_heartcycle<0.1 % skip if too close to zero, will give weird values
         %     continue
         % else
-            PI(ind) = (peak-low)/abs(av_heartcycle);
+        PI(ind) = (peak-low)/abs(av_heartcycle);
         % end
     end
 
 
-  
-    %% FFT - freq spectrum 
+
+    %% FFT - freq spectrum
     [P1, f] = Frequency_spectrum_velocity(vel, frmRate);
 
     %% Save
@@ -229,43 +240,80 @@ for ind_kymo = 1:length(kymograph_list)
         continue
     end
     % in kymoROI file:
-    Pulsatility_calc.yFitted = yFitted;
-    Pulsatility_calc.PI = PI;
-    Pulsatility_calc.peakinds = indx;
-    Pulsatility_calc.peaks = pks;
-    Pulsatility_calc.heartbeat = av_heart_beat;
+    Pulsatility_calc.(method).yFitted = yFitted;
+    Pulsatility_calc.(method).PI = PI;
+    Pulsatility_calc.(method).peakinds = indx;
+    Pulsatility_calc.(method).peaks = pks;
+    Pulsatility_calc.(method).heartbeat = av_heart_beat;
 
     save([DataFolder ROIname], 'Pulsatility_calc', '-append');
 
 
 
 
-  %% Visualize
+    %% Visualize
     if show_plots
-        startframe = 1;
+        startframe_plot = 1;
         secsplot = 2;
-        endframe = round(startframe+secsplot*frmRate);
+        endframe_plot = round(startframe_plot+secsplot*frmRate);
 
         f2 = figure('Color', 'white');
-        tiledlayout('vertical')
+        tiledlayout('vertical');
 
-        Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secsplot, [], 1, 1)
+        Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secsplot, [], 1, 1);
         title([Mouse ' ' Acq])
 
         nexttile
-        plot(time, vel, '.')
-        xlim([startframe/frmRate;endframe/frmRate])
-        xlabel('Seconds')
-        ylabel('Velocity (mm/s)')
+        if isfield(Velocity_calc, 'xcorr_range')
+            vel = abs(Velocity_calc.xcorr_range.velocity);
+            if size(vel,1) < size(vel,2)
+                vel = vel';
+            end
+            time = linspace(0,secs,length(vel))';
+
+            plot(time, vel, '.')
+            xlim([startframe_plot/frmRate;endframe_plot/frmRate])
+            xlabel('Seconds')
+            ylabel('Velocity (mm/s)')
+            title('Velocity xcorr_range')
+        end
 
         nexttile;
-        plot(time,yFitted)
-        hold on
-        scatter(time(indx), pks)
-        xlim([startframe/frmRate;endframe/frmRate])
-        title(['Average heart beat = ' num2str(av_heart_beat) ...
-            ' - Average Pulsatility Index = ' num2str(mean(PI, 'omitnan'))])
-        xlabel('Seconds'); ylabel('Fitted velocity');
+        if isfield(Pulsatility_calc, 'xcorr_range')
+            plot(time,Pulsatility_calc.xcorr_range.yFitted)
+            hold on
+            scatter(time(Pulsatility_calc.xcorr_range.peakinds), Pulsatility_calc.xcorr_range.peaks)
+            xlim([startframe_plot/frmRate;endframe_plot/frmRate])
+            title(['Average heart beat = ' num2str(Pulsatility_calc.xcorr_range.heartbeat) ...
+                ' - Average Pulsatility Index = ' num2str(mean(Pulsatility_calc.xcorr_range.PI, 'omitnan'))])
+            xlabel('Seconds'); ylabel('Fitted velocity xcorr_range');
+        end
+
+        nexttile
+        if isfield(Velocity_calc, 'fft')
+            vel = abs(Velocity_calc.fft.velocity);
+            if size(vel,1) < size(vel,2)
+                vel = vel';
+            end
+            time = linspace(0,secs,length(vel))';
+
+            plot(time, vel, '.')
+            xlim([startframe_plot/frmRate;endframe_plot/frmRate])
+            xlabel('Seconds')
+            ylabel('Velocity (mm/s)')
+            title('fft')
+        end
+
+        nexttile;
+        if isfield(Pulsatility_calc, 'fft')
+            plot(time,Pulsatility_calc.fft.yFitted)
+            hold on
+            scatter(time(Pulsatility_calc.fft.peakinds), Pulsatility_calc.fft.peaks)
+            xlim([startframe_plot/frmRate;endframe_plot/frmRate])
+            title(['Average heart beat = ' num2str(Pulsatility_calc.fft.heartbeat) ...
+                ' - Average Pulsatility Index = ' num2str(mean(Pulsatility_calc.fft.PI, 'omitnan'))])
+            xlabel('Seconds'); ylabel('Fitted velocity fft/old');
+        end
 
         nexttile;
         % semilogy(f, P1);
@@ -275,7 +323,7 @@ for ind_kymo = 1:length(kymograph_list)
         axis([0 100 10^-3 inf]);
         title('FFT on velocity');
 
-        f2.Position = [500 120 850 650];
+        f2.Position = [500 60 700 780];
         pause(2);
         savefig(gcf, [DataFolder 'Velocity.fig']);
         close(f2)
@@ -294,7 +342,7 @@ end
 
 velocity = velocity(1:find(~isnan(velocity),1,'last'));
 if sum(isnan(velocity))>0
-    disp('still nan in velocity, fix!')
+    disp('No FFT - still nan in velocity, fix!')
 end
 
 velocity = velocity - mean(velocity); %??
@@ -323,12 +371,12 @@ P1(2:end-1) = 2*P1(2:end-1);  %Multiply the spectrum in the positive frequencies
 % semilogy(f, P1_norm);
 % semilogy(f, P1_smoothed);
 % legend({'P1', 'P1 norm', 'P1 smoothed'})
-% 
+%
 
 
 
 % %%
-% 
+%
 % % hanning window fft:
 % f3 = figure;
 % % hanvelocity = hanning(length(velocity))' .* velocity;
@@ -337,21 +385,21 @@ P1(2:end-1) = 2*P1(2:end-1);  %Multiply the spectrum in the positive frequencies
 % P2 = abs(Y/L); % two sided spectrum
 % P1 = P2(1:floor(L/2)+1); % one sided spectrum
 % P1(2:end-1) = 2*P1(2:end-1);  %Multiply the spectrum in the positive frequencies by 2. You do not need to multiply P1(1) and P1(end) by 2 because these amplitudes correspond to the zero and Nyquist frequencies, respectively, and they do not have the complex conjugate pairs in the negative frequencies.
-% 
+%
 % P1_norm =  mat2gray( smoothdata( P1,'gaussian',3) );
 % P1_smoothed = movmedian(P1, 2);
-% 
+%
 % semilogy(f, P1);
 % ylim([0.001 1]); ylabel('Aplitude (a.u.)');
 % xlim([1 100]); xlabel('f (Hz)');
 % % hold on
 % % semilogy(f, P1_norm);
 % % semilogy(f, P1_smoothed);
-% 
-% legend({'P1', 'P1 norm', 'P1 smoothed'})    
+%
+% legend({'P1', 'P1 norm', 'P1 smoothed'})
 % axis([0 fLim 10^-3 inf]);
 % title('Hanning window fft')
-% 
+%
 % velocity_fft = P1;
 
 end

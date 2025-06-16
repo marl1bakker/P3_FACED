@@ -34,20 +34,29 @@ Mousetable.Mouse = repmat({Mouse}, sz(1), 1);
 if exist([SaveDirectory 'Overview.mat'], 'file')
     load ([SaveDirectory 'Overview.mat'], 'Overview')
     if any(contains(Overview.Mouse, Mouse))
-        disp('Mouse already added to overview, function exited.')
-        return
+        compare_table = Overview(contains(Overview.Mouse, Mouse),:);
+        % disp('Mouse already added to overview, function exited.')
+        % return
     end
 end
 
 %% Add per acquisition
 for ind = 1:size(Acquisitions,1)
 
-    % Acq
     Acq = Acquisitions(ind).name;
+    
+    % check if done
+    if exist("compare_table",'var') && any(matches(compare_table.Acq, Acq))
+       Mousetable.Acq(ind) = {'dummy'};
+       % Mousetable(ind,:) = compare_table(matches(compare_table.Acq, Acq),:);
+       continue
+    end
+
+    % Acq
     Mousetable.Acq(ind) = {Acq};
 
     %% temp
-    infofile_patch([RawDataFolder Acq]);
+    % infofile_patch([RawDataFolder Acq]);
     
     % RawDataFolder
     Mousetable.RawDataFolder(ind) = {[RawDataFolder Acq]};
@@ -78,14 +87,20 @@ for ind = 1:size(Acquisitions,1)
 
 end
 
+Mousetable(matches(Mousetable.Acq, 'dummy'),:) = [];
+
 %% Attach to overview table if relevant
-if exist([SaveDirectory 'Overview.mat'], 'file')
+if size(Mousetable, 1) == 0
+    disp('Mouse already added to overview, function exited.')
+    return
+elseif exist([SaveDirectory 'Overview.mat'], 'file')
     load ([SaveDirectory 'Overview.mat'], 'Overview', 'Pipeline_check')
     Overview = [Overview; Mousetable];
 
     warning('off')
     startindex = size(Pipeline_check, 1)+1;
-    endindex = startindex+size(Acquisitions,1)-1;
+    % endindex = startindex+size(Acquisitions,1)-1;
+    endindex = startindex+size(Mousetable,1)-1;
     Pipeline_check.Mouse(startindex:endindex) = Mousetable.Mouse;
     Pipeline_check.Acq(startindex:endindex) = Mousetable.Acq;
     Pipeline_check.AddRecording(startindex:endindex) = repmat(datetime, size(Mousetable,1),1);

@@ -178,8 +178,8 @@ for ind_ROI = 1:size(ROI_list,2)
             % a block is always straight, and since we average over the
             % y-axis, the "line" covers the distance of the pixel size over
             % the x axis
-            load([DataFolder ROIname], 'roiX');
-            PixelSize.length_segments_um = (roiX(2)-roiX(1)) * pxlX;
+            load([DataFolder ROIname], 'ROI_info');
+            PixelSize.length_segments_um = (ROI_info.roiX(2)-ROI_info.roiX(1)) * pxlX;
             PixelSize.pxlSize = pxlX;
             PixelSize.pxlSize_segments = pxlX;
 

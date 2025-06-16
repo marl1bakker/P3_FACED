@@ -79,27 +79,33 @@ if contains(method, {'old', 'fft'})
     % But as far as I (MB) can see it's only determining the windowsize of the
     % bad fit detection and does not change the nr of velocity points.
 
-    if matches(AcqInfoStream.Vessel, 'Capillary')
-        % est_um_per_sec = 1000; % um/sec estimated speed, can also be around 8 mm/s (fig 4 meng) or 0.2 (fig 3 meng)
 
-        shiftamt      = 5;
-        % numavgs       = 25;
-        numavgs = 50;
-        % skipamt       = 25;   %if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc.
-    elseif matches(AcqInfoStream.Vessel, 'Artery') || matches(AcqInfoStream.Vessel, 'Arteriole')
-        % 30 mm/s (fig 2 meng), fig 5 shows 6 mm/s or 8 mm/s though
-        % ??10-35 cm/s carotid -- In Vivo MRI Assessment of Blood Flow in Arteries and Veins from Head-to-Toe Across Age and Sex in C57BL/6 Mice
-        % est_um_per_sec = 30000;
-        % est_um_per_sec = 10000;
-        numavgs       = 50;  %up to 100 (or more) for noisy or slow data
-        % skipamt       = 25;
-        shiftamt      = 1;
-    elseif matches(AcqInfoStream.Vessel, 'Vein') || matches(AcqInfoStream.Vessel, 'Venule')
-        % est_um_per_sec = 5000; % 5 mm/s (fig 2, 3, 5 meng)
-        numavgs       = 100;  %up to 100 (or more) for noisy or slow data
-        % skipamt       = 25;
-        shiftamt      = 1;
-    end
+    % added 12/6/2025
+    shiftamt = 5;
+    numavgs = 100;
+
+    % if matches(AcqInfoStream.Vessel, 'Capillary')
+    %     % est_um_per_sec = 1000; % um/sec estimated speed, can also be around 8 mm/s (fig 4 meng) or 0.2 (fig 3 meng)
+    % 
+    %     shiftamt      = 5;
+    %     % numavgs       = 25;
+    %     numavgs = 50;
+    %     % skipamt       = 25;   %if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc.
+    % elseif matches(AcqInfoStream.Vessel, 'Artery') || matches(AcqInfoStream.Vessel, 'Arteriole')
+    %     % 30 mm/s (fig 2 meng), fig 5 shows 6 mm/s or 8 mm/s though
+    %     % ??10-35 cm/s carotid -- In Vivo MRI Assessment of Blood Flow in Arteries and Veins from Head-to-Toe Across Age and Sex in C57BL/6 Mice
+    %     % est_um_per_sec = 30000;
+    %     % est_um_per_sec = 10000;
+    %     numavgs       = 50;  %up to 100 (or more) for noisy or slow data
+    %     % skipamt       = 25;
+    %     shiftamt      = 2; 
+    %     skipamt = 2;
+    % elseif matches(AcqInfoStream.Vessel, 'Vein') || matches(AcqInfoStream.Vessel, 'Venule')
+    %     % est_um_per_sec = 5000; % 5 mm/s (fig 2, 3, 5 meng)
+    %     numavgs       = 100;  %up to 100 (or more) for noisy or slow data
+    %     % skipamt       = 25;
+    %     shiftamt      = 1;
+    % end
 end
 
 
@@ -131,6 +137,12 @@ for ind_kymo = 1:length(kymograph_list)
     load([DataFolder ROIname], 'kymoImg', 'PixelSize', 'Velocity_calc', 'ROI_type', 'ROI_info', 'RBC');
     warning('on');
 
+    %% temp 12-6-25 to speed up process
+    if matches(method, 'fft')
+        % weird nr to make fit with pulsatility calc. Could be 1*shiftamt
+        kymoImg = kymoImg(1:round(2*frmRate)+numavgs+(2*shiftamt)+1,:);
+    end
+
     % if contains(ROI_type, 'perpendicular')
     if ~contains(ROI_type, 'line')
         disp([ROIname ' is a perpendicular ROI, velocity calculation skipped.'])
@@ -146,16 +158,6 @@ for ind_kymo = 1:length(kymograph_list)
         disp('OVERWRITING VELOCITY')
     end
 
-    % check if kymograph was good enoguh for velocity caluclation
-    if ~isfield(ROI_info, 'calculate_velocity') || matches(ROI_info.calculate_velocity, 'Cancel')
-        f1 = figure; imagesc(kymoImg(1:round(frmRate/2),:)'); colormap('gray')
-        f1.Position = [50 100 1500 200];
-        answer = questdlg('Is this kymograph good enough for velocity calculation?');
-        ROI_info.calculate_velocity = answer;
-        close(f1)
-        save([DataFolder ROIname], 'ROI_info', '-append')
-        clear answer
-    end
     if matches(ROI_info.calculate_velocity, 'No')
         disp([ROIname ' not good enough for velocity calculation - skipped.']);
         disp('If this is wrong, change ROI_info.calculate_velocity.')
@@ -164,10 +166,13 @@ for ind_kymo = 1:length(kymograph_list)
 
 
     %% Both methods - Get pixelsize - once
-    if ~exist('PixelSize', 'var')
-        [PixelSize] = Pixelsize_ROI(DataFolder, ROIname);
-    end
-    pxlSize = PixelSize.pxlSize;
+    % moved to make_kymograph
+    % if ~exist('PixelSize', 'var')
+    %     [PixelSize] = Pixelsize_ROI(DataFolder, ROIname);
+    % end
+    % pxlSize = PixelSize.pxlSize;
+    % error('think of pixelsize')
+    pxlSize = 1; % TRY 
     clear PixelSize
 
 
@@ -181,48 +186,61 @@ for ind_kymo = 1:length(kymograph_list)
 
 
     %% Both methods - Clean up kymo
-    kymoImg = movmean(kymoImg, 20, 1);
+    % kymoImg = movmean(kymoImg, 20, 1); % old: changed 17-4-25. With very fast vessels this blurs instead of makes more clear
+    kymoImg = movmean(kymoImg, ROI_info.est_frames_to_cross_kymo/10, 1);
     DCoffset = sum(kymoImg,1) / size(kymoImg,1);
     imageLinesDC = kymoImg - repmat(DCoffset,size(kymoImg,1),1);
 
-    % MB: get rid of slow freq variations [Dxx,Dxy,Dyy] = Hessian2D(I,Sigma)
-    % if size(kymoImg,2)>50 % if pixelsize is huge it will give a weird image
-        Sigma = 6/pxlSize; % RBC is about 6 micron
-        [Dxx, Dxy, Dyy] = Hessian2D(imageLinesDC', Sigma);
-        imageLinesDC = (-Dyy-Dxy)';
-        clear Dxx Dxy Dyy DCoffset
-    % else
-        % disp('CHECK WHAT TO DO')
-% 
-    % end
-    %% Both methods - get number of frames to skip for correlation and
-    %% identify orientation
-    % Do this after cleaning up kymo so it's easier to see
-    % options of calculations are "whole" for estimating how long one rbc
-    % takes to cross the entire kymo, or "part" where you can take two
-    % points.
+    % get rid of differences in imaging strenght over the imageing line 21/4/25
+    profile = mean(abs(imageLinesDC),1);
+    profile_offset = mean(profile,2);
+    correction_factor = (profile-profile_offset)*-1 + profile_offset;
+    imageLinesDC = imageLinesDC .* correction_factor;
+    clear profile profile_offset correction_factor
 
-    if exist('Velocity_calc', 'var') && isfield(Velocity_calc, 'skipamt')
-        skipamt = Velocity_calc.skipamt;
-        est_mm_per_sec = Velocity_calc.est_mm_per_sec;
-        orientation = Velocity_calc.orientation;
-        try
-            est_frames_to_cross_kymo = Velocity_calc.est_frames_to_cross_kymo;
-        catch % temp patch
-            est_frames_to_cross_kymo = 4*skipamt;
-            Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
-            save([DataFolder ROIname], 'Velocity_calc',  '-append')
-        end
-    else
-        [skipamt, est_frames_to_cross_kymo, ~, est_mm_per_sec] = calc_skip_amount(kymoImg, frmRate, pxlSize, 'part');
-        % [skipamt, ~, ~, est_mm_per_sec] = calc_skip_amount(imageLinesDC, frmRate, pxlSize, 'part');
-        Velocity_calc.skipamt = skipamt;
-        Velocity_calc.est_mm_per_sec = est_mm_per_sec;
-        [orientation] = identify_orientation(kymoImg, frmRate);
-        Velocity_calc.orientation = orientation;
-        Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
-        save([DataFolder ROIname], 'Velocity_calc',  '-append')
-    end
+    % X = [ones(size(imageLinesDC,2),1), mean(imageLinesDC,1)'];
+    % B = X\imageLinesDC';
+    % bla = imageLinesDC' - X'*B;
+
+    % MB: get rid of slow freq variations [Dxx,Dxy,Dyy] = Hessian2D(I,Sigma)
+    % if linescan is not long enough it will give weird results
+    % if size(kymoImg,2)>20 && ROI_info.est_mm_per_sec < 5 % changed 17-4-25
+    %     Sigma = 6/pxlSize; % RBC is about 6 micron
+    %     [Dxx, Dxy, Dyy] = Hessian2D(imageLinesDC', Sigma);
+    %     imageLinesDC = (-Dyy-Dxy)';
+    %     clear Dxx Dxy Dyy DCoffset
+    % else
+    %     % disp('CHECK WHAT TO DO')
+    % end
+
+    % %% Both methods - get number of frames to skip for correlation and
+    % %% identify orientation -- moved to make_kymograph
+    % % Do this after cleaning up kymo so it's easier to see
+    % % options of calculations are "whole" for estimating how long one rbc
+    % % takes to cross the entire kymo, or "part" where you can take two
+    % % points.
+    % 
+    % if exist('Velocity_calc', 'var') && isfield(Velocity_calc, 'skipamt')
+    %     skipamt = Velocity_calc.skipamt;
+    %     est_mm_per_sec = Velocity_calc.est_mm_per_sec;
+    %     orientation = Velocity_calc.orientation;
+    %     try
+    %         est_frames_to_cross_kymo = Velocity_calc.est_frames_to_cross_kymo;
+    %     catch % temp patch
+    %         est_frames_to_cross_kymo = 4*skipamt;
+    %         Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
+    %         save([DataFolder ROIname], 'Velocity_calc',  '-append')
+    %     end
+    % else
+    %     [skipamt, est_frames_to_cross_kymo, ~, est_mm_per_sec] = calc_skip_amount(kymoImg, frmRate, pxlSize, 'part');
+    %     % [skipamt, ~, ~, est_mm_per_sec] = calc_skip_amount(imageLinesDC, frmRate, pxlSize, 'part');
+    %     Velocity_calc.skipamt = skipamt;
+    %     Velocity_calc.est_mm_per_sec = est_mm_per_sec;
+    %     [orientation] = identify_orientation(kymoImg, frmRate);
+    %     Velocity_calc.orientation = orientation;
+    %     Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
+    %     save([DataFolder ROIname], 'Velocity_calc',  '-append')
+    % end
 
 
     %% Method old/1/fft
@@ -340,9 +358,13 @@ for ind_kymo = 1:length(kymograph_list)
         velocity = velocity / 1000; % mm per frame
         velocity = velocity * frmRate; % mm per sec
 
+        if mean(velocity, 'omitnan')<0
+            velocity = -velocity;
+        end
 
     elseif matches(method, {'new', 'xcorr'})
         method = 'xcorr';
+        orientation = ROI_info.orientation;
 
         corr_values = nan(size(kymoImg,1)-skipamt,1);
         shift_amounts = nan(size(kymoImg,1)-skipamt,1);
@@ -413,6 +435,7 @@ for ind_kymo = 1:length(kymograph_list)
 
         %% X correlation with range
     elseif matches(method, {'xcorr_range'})
+        orientation = ROI_info.orientation;
 
         % Set-up of settings
         if matches(orientation, 'Forwards')
@@ -424,19 +447,27 @@ for ind_kymo = 1:length(kymograph_list)
         % If speed is low, the max corr peak will lie in the middle, and to
         % recognize that as peak, you need to take the middle
         % into account. Could make speed slightly negative
-        if matches(orientation, 'Backwards') || matches(orientation, 'Forwards')
-            playroom_middle = round(size(kymoImg,2)/10);
-        elseif matches(orientation, 'Varies')
-            playroom_middle = ceil(size(kymoImg,2)/5);
-        end
+        % if ROI_info.est_mm_per_sec<5 % changed 17-4-25
+            if matches(orientation, 'Backwards') || matches(orientation, 'Forwards')
+                playroom_middle = round(size(kymoImg,2)/10);
+            elseif matches(orientation, 'Varies')
+                playroom_middle = ceil(size(kymoImg,2)/5);
+            else
+                playroom_middle = ceil(size(kymoImg,2)/5);
+            end
+        % else
+        %     playroom_middle = 0;
+        % end
 
         % skiprange: compare multiple upcoming frames to frame of
         % interest.
-        skipamt = round(0.5*est_frames_to_cross_kymo);% couldve put this at calc-skipamt but already calculated with 0.25, this is easier
+        skipamt = round(0.5*ROI_info.est_frames_to_cross_kymo);% couldve put this at calc-skipamt but already calculated with 0.25, this is easier
         % skipamt_range_start = skipamt - 50;
-        % if skipamt_range_start<1
-        skipamt_range_start = 1;
-        % end
+        if skipamt>100 % 21-4-25
+            skipamt_range_start = skipamt - 50;
+        else
+            skipamt_range_start = 1;
+        end
 
         velocity = NaN(size(kymoImg-skipamt, 1), 1);
         weights = NaN(size(kymoImg-skipamt, 1), 1);
@@ -487,7 +518,7 @@ for ind_kymo = 1:length(kymograph_list)
                 % plot(max_corr_ind+middle-1, max_corr_val, '*')
 
                 max_corr_val_prev = max_corr_val;
-                velocityline(ind_skip_amt) = (max_corr_ind-1)*pxlSize*(frmRate/ind_skip_amt)/1000; % in mm/sec
+                velocityline(ind_skip_amt) = (max_corr_ind-1)*pxlSize * (frmRate/ind_skip_amt) / 1000; % in mm/sec
             end
             velocity(ind_corr) = mean(velocityline, 1, 'omitnan');
             weights(ind_corr) = sum(~isnan(velocityline));
@@ -509,8 +540,10 @@ for ind_kymo = 1:length(kymograph_list)
         velocity = movmean(velocity, skipamt, 'omitnan');
 
         % f1 = figure;imagesc(kymoImg(1:round(frmRate),:)')
-        f2 = figure;plot(raw_velocity(1:round(frmRate))); hold on; plot(velocity(1:round(frmRate)))
+        if raw_velocity>round(frmRate)
+            f2 = figure;plot(raw_velocity(1:round(frmRate))); hold on; plot(velocity(1:round(frmRate)))
         % close(f1, f2)
+        end
 
         f5 = figure;
         yyaxis left; imagesc(kymoImg'); colormap('gray'); ylabel('kymograph')
@@ -525,7 +558,10 @@ for ind_kymo = 1:length(kymograph_list)
 
         yyaxis right; plot(velocity, 'Color', 'red', 'LineWidth', 2); ylabel('velocity mm/s')
 
-        close(f2, f5)
+        close(f5)
+                if raw_velocity>round(frmRate)
+close(f2)
+                end
 
     elseif matches(orientation, 'varies')
         % to do: code for if the rbc's also go backwards sometimes.
@@ -542,7 +578,7 @@ for ind_kymo = 1:length(kymograph_list)
     meanvel  = mean(velocity(goodvals), 'omitnan'); %overall mean (exclude bad fits)
     stdvel   = std(velocity(goodvals), 'omitnan');  %overall std
 
-    disp(['Estimated velocity was ' num2str(est_mm_per_sec), ...
+    disp(['Estimated velocity was ' num2str(ROI_info.est_mm_per_sec), ...
         ', mean calculated velocity was ' num2str(meanvel)])
 
 
@@ -584,8 +620,8 @@ for ind_kymo = 1:length(kymograph_list)
 
         figuretitle = ['Velocity calculation for entire acquisition - ' method];
         seps = strfind(DataFolder, filesep);
-        ROI_info = [DataFolder(seps(end-1)+1:seps(end)-1) ' ' ROIname(1:end-4) ' Vessel: ' AcqInfoStream.Vessel];
-        sgtitle({['{\bf\fontsize{14}' figuretitle '}'],ROI_info});
+        ROI_info_title = [DataFolder(seps(end-1)+1:seps(end)-1) ' ' ROIname(1:end-4) ' Vessel: ' AcqInfoStream.Vessel];
+        sgtitle({['{\bf\fontsize{14}' figuretitle '}'],ROI_info_title});
 
 
         % One second
@@ -630,7 +666,7 @@ for ind_kymo = 1:length(kymograph_list)
         else
             figuretitle = ['Velocity calculation for ' num2str(seconds) ' seconds'];
         end
-        sgtitle({['{\bf\fontsize{14}' figuretitle '}'],ROI_info});
+        sgtitle({['{\bf\fontsize{14}' figuretitle '}'],ROI_info_title});
 
     end
  
@@ -650,6 +686,9 @@ for ind_kymo = 1:length(kymograph_list)
     elseif matches(method, 'xcorr_range')
         Velocity_calc.(method).raw_velocity = raw_velocity;
         Velocity_calc.(method).weights = weights;
+    elseif matches(method, 'fft')
+        Velocity_calc.(method).shiftamt = shiftamt;
+        Velocity_calc.(method).numavgs = numavgs;        
     end
 
 
@@ -683,7 +722,7 @@ if show_plots
             continue
         end
 
-        plot(Velocity_calc.velocity)
+        plot(Velocity_calc.xcorr_range.velocity)
         legendnames = [legendnames; ROIname];
         clear Velocity_calc ROI_type
     end
@@ -695,129 +734,129 @@ end
 end
 
 
-
-
-function [skipframes, est_frames_to_cross_kymo, est_sec_to_cross_kymo, est_mm_per_sec] = calc_skip_amount(kymoImg, framerate, pixelsize, option)
-
-if exist('option', 'var') && matches(option, 'whole')
-
-    %% skipamt calculation:
-    % if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc
-    % estimate speed
-    f1 = figure; imagesc(kymoImg(1:round(framerate),:)'); colormap('gray');
-    opts.WindowStyle = 'normal';
-    est_frames_to_cross_kymo = inputdlg({'How many frames for rbc to cross the kymograph?'},'input', [1 45], {''}, opts);
-    close(f1);
-    est_frames_to_cross_kymo = str2double(est_frames_to_cross_kymo{1});
-    est_sec_to_cross_kymo = est_frames_to_cross_kymo/framerate;
-    length_um_ROI = size(kymoImg,2)*pixelsize;
-    est_um_per_sec = (1/est_sec_to_cross_kymo)*length_um_ROI;
-    est_mm_per_sec = est_um_per_sec/1000;
-    disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
-
-    if est_frames_to_cross_kymo < 1
-        warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
-            'Either the kymograph ROI is too short, or the acquisition is too ' ...
-            'slow to make an accurate speed calculation.']);
-        skipframes = 1;
-        return
-    end
-
-else
-    %% on a part of the RBC trajectory
-    if size(kymoImg, 1)<round(framerate)
-        f1 = figure; imagesc(kymoImg(:,:)); colormap('gray');
-    else
-        f1 = figure; imagesc(kymoImg(1:round(framerate),:)); colormap('gray');
-    end
-    opts.WindowStyle = 'normal';
-    dlgtitle = 'Estimate speed';
-    prompt = {'Frames over x-axis (space)', 'Frames over y-axis (time)'};
-    fieldsize = [1 45; 1 45];
-    answers = inputdlg(prompt,dlgtitle, fieldsize, {'', ''}, opts);
-
-    close(f1);
-    shift_amt = str2double(answers{1});
-    skipamt = str2double(answers{2});
-    est_um_per_sec = shift_amt*pixelsize*(framerate/skipamt);
-    est_mm_per_sec = est_um_per_sec/1000;
-
-    length_um_ROI = size(kymoImg,2)*pixelsize;
-    est_sec_to_cross_kymo = length_um_ROI/est_um_per_sec;
-    est_frames_to_cross_kymo = (size(kymoImg,2)/shift_amt)*skipamt;
-
-    disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
-
-    if est_frames_to_cross_kymo < 1
-        warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
-            'Either the kymograph ROI is too short, or the acquisition is too ' ...
-            'slow to make an accurate speed calculation.']);
-        skipframes = 1;
-        return
-    end
-
-end
-
-%% calculate number of frames you should skip
-skipframes = round(0.25*est_frames_to_cross_kymo);
-
-if skipframes < 1
-    warning(['Calculated frames to skip was smaller than 1. Adjusted to'...
-        ' 4 but RBCs may be too fast to accurately calculate velocity.']);
-    skipframes = 4;
-elseif skipframes < 5
-    warning('Skipframes was smaller than 5, so kept at 5.')
-    skipframes = 5;
-end
-
-end
-
-
-
-function [orientation] = identify_orientation(kymoImg, framerate)
-
-f1 = figure('Position', [40 60 1000 800]);
-tiledlayout(6,2)
-
-nexttile(1, [1 2]);
-imagesc(kymoImg(:,:)'); colormap('gray');
-title('all')
-
-if size(kymoImg,1)>round(framerate*2)
-    nexttile(3, [1 2]);
-    imagesc(kymoImg(1:round(framerate*2),:)'); colormap('gray');
-    title('2 sec')
-end
-
-if size(kymoImg,1)>round(framerate/2)
-    nexttile(5, [1 2]);
-    imagesc(kymoImg(1:round(framerate/2),:)'); colormap('gray');
-    title('0.5 sec')
-end
-
-nexttile(7, [1 2]);
-imagesc(kymoImg(1:100,:)'); colormap('gray');
-title('100 frames')
-
-nexttile(9, [2 1]);
-plot([1 2], [2 1]);
-title('Forwards')
-
-nexttile(10, [2 1]);
-plot([1 2], [1 2]);
-title('Backwards')
-
-opts.Interpreter = 'none';
-opts.Default = 'Cancel';
-opts.WindowStyle = 'normal';
-orientation = questdlg('Are the RBC moving forwards or backwards?', 'Orientation', 'Forwards', 'Backwards', 'Cancel', opts);
-
-if matches(orientation, 'Cancel')
-    return
-end
-
-close(f1);
-end
-
+% 
+% 
+% function [skipframes, est_frames_to_cross_kymo, est_sec_to_cross_kymo, est_mm_per_sec] = calc_skip_amount(kymoImg, framerate, pixelsize, option)
+% 
+% if exist('option', 'var') && matches(option, 'whole')
+% 
+%     %% skipamt calculation:
+%     % if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc
+%     % estimate speed
+%     f1 = figure; imagesc(kymoImg(1:round(framerate),:)'); colormap('gray');
+%     opts.WindowStyle = 'normal';
+%     est_frames_to_cross_kymo = inputdlg({'How many frames for rbc to cross the kymograph?'},'input', [1 45], {''}, opts);
+%     close(f1);
+%     est_frames_to_cross_kymo = str2double(est_frames_to_cross_kymo{1});
+%     est_sec_to_cross_kymo = est_frames_to_cross_kymo/framerate;
+%     length_um_ROI = size(kymoImg,2)*pixelsize;
+%     est_um_per_sec = (1/est_sec_to_cross_kymo)*length_um_ROI;
+%     est_mm_per_sec = est_um_per_sec/1000;
+%     disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
+% 
+%     if est_frames_to_cross_kymo < 1
+%         warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
+%             'Either the kymograph ROI is too short, or the acquisition is too ' ...
+%             'slow to make an accurate speed calculation.']);
+%         skipframes = 1;
+%         return
+%     end
+% 
+% else
+%     %% on a part of the RBC trajectory
+%     if size(kymoImg, 1)<round(framerate)
+%         f1 = figure; imagesc(kymoImg(:,:)); colormap('gray');
+%     else
+%         f1 = figure; imagesc(kymoImg(1:round(framerate),:)); colormap('gray');
+%     end
+%     opts.WindowStyle = 'normal';
+%     dlgtitle = 'Estimate speed';
+%     prompt = {'Frames over x-axis (space)', 'Frames over y-axis (time)'};
+%     fieldsize = [1 45; 1 45];
+%     answers = inputdlg(prompt,dlgtitle, fieldsize, {'', ''}, opts);
+% 
+%     close(f1);
+%     shift_amt = str2double(answers{1});
+%     skipamt = str2double(answers{2});
+%     est_um_per_sec = shift_amt*pixelsize*(framerate/skipamt);
+%     est_mm_per_sec = est_um_per_sec/1000;
+% 
+%     length_um_ROI = size(kymoImg,2)*pixelsize;
+%     est_sec_to_cross_kymo = length_um_ROI/est_um_per_sec;
+%     est_frames_to_cross_kymo = (size(kymoImg,2)/shift_amt)*skipamt;
+% 
+%     disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
+% 
+%     if est_frames_to_cross_kymo < 1
+%         warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
+%             'Either the kymograph ROI is too short, or the acquisition is too ' ...
+%             'slow to make an accurate speed calculation.']);
+%         skipframes = 1;
+%         return
+%     end
+% 
+% end
+% 
+% %% calculate number of frames you should skip
+% skipframes = round(0.25*est_frames_to_cross_kymo);
+% 
+% if skipframes < 1
+%     warning(['Calculated frames to skip was smaller than 1. Adjusted to'...
+%         ' 4 but RBCs may be too fast to accurately calculate velocity.']);
+%     skipframes = 4;
+% elseif skipframes < 5
+%     warning('Skipframes was smaller than 5, so kept at 5.')
+%     skipframes = 5;
+% end
+% 
+% end
+% 
+% 
+% 
+% function [orientation] = identify_orientation(kymoImg, framerate)
+% 
+% f1 = figure('Position', [40 60 1000 800]);
+% tiledlayout(6,2)
+% 
+% nexttile(1, [1 2]);
+% imagesc(kymoImg(:,:)'); colormap('gray');
+% title('all')
+% 
+% if size(kymoImg,1)>round(framerate*2)
+%     nexttile(3, [1 2]);
+%     imagesc(kymoImg(1:round(framerate*2),:)'); colormap('gray');
+%     title('2 sec')
+% end
+% 
+% if size(kymoImg,1)>round(framerate/2)
+%     nexttile(5, [1 2]);
+%     imagesc(kymoImg(1:round(framerate/2),:)'); colormap('gray');
+%     title('0.5 sec')
+% end
+% 
+% nexttile(7, [1 2]);
+% imagesc(kymoImg(1:100,:)'); colormap('gray');
+% title('100 frames')
+% 
+% nexttile(9, [2 1]);
+% plot([1 2], [2 1]);
+% title('Forwards')
+% 
+% nexttile(10, [2 1]);
+% plot([1 2], [1 2]);
+% title('Backwards')
+% 
+% opts.Interpreter = 'none';
+% opts.Default = 'Cancel';
+% opts.WindowStyle = 'normal';
+% orientation = questdlg('Are the RBC moving forwards or backwards?', 'Orientation', 'Forwards', 'Backwards', 'Cancel', opts);
+% 
+% if matches(orientation, 'Cancel')
+%     return
+% end
+% 
+% close(f1);
+% end
+% 
 
 

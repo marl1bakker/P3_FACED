@@ -45,6 +45,8 @@ if matches(Field, 'Coupled_acq')
         if matches(change_acqs, 'Yes')
             AcqInfoStream = rmfield(AcqInfoStream,'Coupled_acq');
             add_acqs = 'Yes';
+        else
+            return
         end
     else
         add_acqs = 'Yes';

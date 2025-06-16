@@ -65,6 +65,10 @@ for mouseind = 1:size(mice,1)
         plotcounter = plotcounter+1;
         if exist('Velocity_calc', 'var') && isfield(Velocity_calc, 'xcorr_range')
             Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secs_plotted, Velocity_calc.xcorr_range.velocity, 1, plotcounter-((figurecounter-1)*kyms_per_fig));
+            if isfield(Velocity_calc, 'fft')
+                hold on
+                plot(Velocity_calc.fft.velocity, 'Color', 'blue', 'LineWidth', 2, 'LineStyle','-')
+            end
         else
             Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secs_plotted, [], 1, plotcounter-((figurecounter-1)*kyms_per_fig));
         end

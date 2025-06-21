@@ -240,10 +240,15 @@ end
 %% Get marker type per mouse
 % note: have to do another mice loop because you need all of them here, not
 % just the one you want to update
-markerstyles = {"o","+","*",".","x","_","|","square","diamond","^","v",">","<","pentagram","hexagram"};
+% markerstyles = {"o","+","*",".","x","_","|","square","diamond","^","v",">","<","pentagram","hexagram"};
+markerstyles = {"o","square","diamond","^","v",">","<","pentagram","hexagram", ...
+    "o","square","diamond","^","v",">","<","pentagram","hexagram"};
+markerfilled = {'y', 'n'};
+
 Mice = sort(unique(Results.Mouse));
 for indmouse = 1:length(Mice) 
-    Results(matches(Results.Mouse, Mice{indmouse}),'Markertype') = cellstr(markerstyles(indmouse));
+    Results(matches(Results.Mouse, Mice{indmouse}),'Markertype') = cellstr(markerstyles(mod(indmouse,2)+1));
+    Results(matches(Results.Mouse, Mice{indmouse}),'Markerfilled') = cellstr(markerfilled(mod(indmouse,2)+1));
 end
 
 %% save

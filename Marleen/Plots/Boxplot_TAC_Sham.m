@@ -31,11 +31,19 @@ Results.idx = grp2idx(Results.x); %this gives the groups based on alphabet, so s
 labels = cellstr(unique(Results.x))';
 
 groups = cellstr(unique(Results.Group));
-
+Results = sortrows(Results, 'Group');
 
 % BOXPLOT
 %dont display outliers because we will do scatter that will show them
 b = boxchart(Results.x, Results.y, 'GroupByColor', Results.Group, 'LineWidth', 2, 'MarkerStyle', 'none');
+b(1).SeriesIndex = 7;
+b(2).SeriesIndex = 1;
+if size(b,1)>2
+    b(3).SeriesIndex = 2;
+    b(4).SeriesIndex = 6;
+end
+% b(1).WhiskerLineColor = [0.5 0.5 0.5];
+% b(2).WhiskerLineColor = [0.5 0.5 0.5];
 hold on
     
 % SCATTER
@@ -58,7 +66,19 @@ clear ind_xgroups indgroup currentgroup currentxgroup currentindex ind indmouse 
 % go per mouse to get different markers
 if any('Markertype' == string(Results.Properties.VariableNames))
     for indmouse = 1:size(Results,1)
-        hs = scatter(Results.idx(indmouse), Results.y(indmouse), 70, "black", Results.Markertype{indmouse}, 'jitter','on','JitterAmount',0.05, 'LineWidth', 1);
+
+        % % M18 calculated hw/bw but did not do imaging
+        % if matches(Results.Mouse{indmouse}, 'M18')
+        %     hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, [0.7 0.7 0.7], '*', 'LineWidth', 1);
+        % 
+        % else
+            if MouseTable.Markerfilled{1} == 'Y'
+                hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, "black", Results.Markertype{indmouse}, 'filled', 'LineWidth', 1);
+            else
+                hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, "black", Results.Markertype{indmouse}, 'LineWidth', 1);
+            end
+        % end
+
     end
 else
     hs = scatter(Results.idx, Results.y, 70, 'filled', 'jitter','on','JitterAmount',0.02);
@@ -71,11 +91,14 @@ end
 % % xticklabels(labels);
 % % xlim([0.2 length(labels)+0.7])
 % 
-% axes1 = b.Parent;
-% hold(axes1,'on');
-% set(axes1,'FontSize',20,'FontWeight','bold','LineWidth',2);
+axes1 = b.Parent;
+hold(axes1,'on');
+set(axes1,'FontSize',10,'FontWeight','bold','LineWidth',1);
 legend(b, 'Location', 'northwest', 'NumColumns', 2);
-%     ylim([8 12]);
+yl = ylim;
+ylim([ceil(yl(1))-1 floor(yl(2))+1]);
+
+title(y_variable, 'Interpreter', 'none')
 
 % b(1).SeriesIndex = 7;
 % b(2).SeriesIndex = 1;

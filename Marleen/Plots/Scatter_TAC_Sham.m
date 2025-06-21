@@ -28,8 +28,12 @@ for indmouse = 1:length(Mice)
     MouseTable = Results(matches(Results.Mouse,Mice{indmouse}),:);
     MouseTable = MouseTable(MouseTable.UseAcq=="Yes",:);
 
-   scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'Marker',MouseTable.Markertype{1}, 'LineWidth',2);
-   hold on
+    if MouseTable.Markerfilled{1} == 'Y'
+        scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'Marker',MouseTable.Markertype{1}, 'filled', 'LineWidth',2);        
+    else
+        scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'Marker',MouseTable.Markertype{1}, 'LineWidth',2);
+    end
+    hold on
 end
 
 % get right labels

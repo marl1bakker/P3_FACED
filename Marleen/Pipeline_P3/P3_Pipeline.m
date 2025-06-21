@@ -9,8 +9,14 @@
 
 
 %% Add recording to overview (have to do "manually" per mouse)
-SaveDirectory = 'D:\FACED\Data P3\';
-BackupDirectory = 'E:\PhD\P3 - Ultrafast two photon';
+% SaveDirectory = 'D:\FACED\Data P3\';
+% BackupDirectory = 'E:\PhD\P3 - Ultrafast two photon';
+SaveDirectory = '/media/mbakker/data1/P3/Data P3/';
+BackupDirectory = '/home/mbakker/Documents/';
+% for ind = 1:size(Overview)
+%     Overview.RawDataFolder(ind) = {['/media/mbakker/data1/P3/Raw Data/' Overview.Mouse{ind} filesep Overview.Acq{ind}]};
+%     Overview.DataFolder(ind) = {['/media/mbakker/data1/P3/Data P3/' Overview.Mouse{ind} filesep Overview.Acq{ind} filesep]};
+% end
 
 % AddRecording('D:\FACED\Raw Data\M16\', SaveDirectory);
 load([SaveDirectory 'Overview.mat'], 'Overview', 'Pipeline_check')
@@ -282,10 +288,10 @@ end
 Overview_Kymographs(Overview)
 
 % single acq rbc tracking:
-plot_rbc_tracking('D:\FACED\Data P3\M04\A21', 1) % for methods fig
+% plot_rbc_tracking('D:\FACED\Data P3\M04\A21', 1) % for methods fig
 
 %% Results.mat
-SaveDirectory = 'D:\FACED\Data P3\';
+% SaveDirectory = 'D:\FACED\Data P3\';
 load([SaveDirectory 'Results.mat'], 'Results')
 Results = Results(Results.UseAcq == 'Yes',:);
 
@@ -318,8 +324,9 @@ Boxplot_TAC_Sham(Results, 'MeanVelocity_xcorr','Vesselgroup', 1, 4);
 
 % Get right markers
 % note: M18 and M19 have no imaging because of bleeding. Give '*' marker and make gray
-SaveDirectory = 'D:\FACED\Data P3\';
+% SaveDirectory = 'D:\FACED\Data P3\';
 load([SaveDirectory 'Results.mat'], 'Results')
+load([SaveDirectory 'TACstats.mat'], 'TACstats')
 
 for indMouse = 1:size(TACstats,1)
     try

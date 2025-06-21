@@ -28,8 +28,8 @@ for indmouse = 1:length(Mice)
     MouseTable = Results(matches(Results.Mouse,Mice{indmouse}),:);
     MouseTable = MouseTable(MouseTable.UseAcq=="Yes",:);
 
-    if MouseTable.Markerfilled{1} == 'Y'
-        scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'Marker',MouseTable.Markertype{1}, 'filled', 'LineWidth',2);        
+    if MouseTable.Markerfilled{1} == 'y'
+        scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'filled', 'Marker',MouseTable.Markertype{1}, 'LineWidth',2);        
     else
         scatter(MouseTable.(x_variable), MouseTable.(y_variable), MouseTable.plotcolour{1}, 'Marker',MouseTable.Markertype{1}, 'LineWidth',2);
     end

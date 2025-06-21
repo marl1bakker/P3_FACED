@@ -72,8 +72,8 @@ if any('Markertype' == string(Results.Properties.VariableNames))
         %     hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, [0.7 0.7 0.7], '*', 'LineWidth', 1);
         % 
         % else
-            if MouseTable.Markerfilled{1} == 'Y'
-                hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, "black", Results.Markertype{indmouse}, 'filled', 'LineWidth', 1);
+            if Results.Markerfilled{indmouse} == 'y'
+                hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, "black", 'filled', Results.Markertype{indmouse}, 'LineWidth', 1);
             else
                 hs = scatter(Results.idx(indmouse)-0.2, Results.y(indmouse), 70, "black", Results.Markertype{indmouse}, 'LineWidth', 1);
             end

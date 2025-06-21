@@ -241,13 +241,13 @@ end
 % note: have to do another mice loop because you need all of them here, not
 % just the one you want to update
 % markerstyles = {"o","+","*",".","x","_","|","square","diamond","^","v",">","<","pentagram","hexagram"};
-markerstyles = {"o","square","diamond","^","v",">","<","pentagram","hexagram", ...
-    "o","square","diamond","^","v",">","<","pentagram","hexagram"};
+markerstyles = {"o","square","diamond","^","v",">","<","pentagram","hexagram"};
+    % "o","square","diamond","^","v",">","<","pentagram","hexagram"};
 markerfilled = {'y', 'n'};
 
 Mice = sort(unique(Results.Mouse));
 for indmouse = 1:length(Mice) 
-    Results(matches(Results.Mouse, Mice{indmouse}),'Markertype') = cellstr(markerstyles(mod(indmouse,2)+1));
+    Results(matches(Results.Mouse, Mice{indmouse}),'Markertype') = cellstr(markerstyles(ceil(indmouse/2)));
     Results(matches(Results.Mouse, Mice{indmouse}),'Markerfilled') = cellstr(markerfilled(mod(indmouse,2)+1));
 end
 
@@ -255,7 +255,7 @@ end
 save([SaveDirectory 'Results.mat'], 'Results')
 
 % save backup
-save(['E:\PhD\P3 - Ultrafast two photon' filesep 'Results_backup_' num2str(day(datetime)) '-' num2str(month(datetime)) '-' num2str(year(datetime)) '.mat'], 'Results')
+% save(['E:\PhD\P3 - Ultrafast two photon' filesep 'Results_backup_' num2str(day(datetime)) '-' num2str(month(datetime)) '-' num2str(year(datetime)) '.mat'], 'Results')
 
 end
 

@@ -284,10 +284,17 @@ Overview_Kymographs(Overview)
 % single acq rbc tracking:
 plot_rbc_tracking('D:\FACED\Data P3\M04\A21', 1) % for methods fig
 
+%% Results.mat
 SaveDirectory = 'D:\FACED\Data P3\';
 load([SaveDirectory 'Results.mat'], 'Results')
+Results = Results(Results.UseAcq == 'Yes',:);
 
+% make groups based on size
+Results.Vesselgroup(Results.Diameter<10) = repmat({'Small'}, 1, size(Results(Results.Diameter<10,:),1));
+Results.Vesselgroup(Results.Diameter>10) = repmat({'Large'}, 1, size(Results(Results.Diameter>10,:),1));
+Results.Vesselgroup = categorical(Results.Vesselgroup);
 
+% scatters
 figure('Color',  'white'); tiledlayout('flow')
 Scatter_TAC_Sham(Results, 'Diameter', 'MeanVelocity_fft', 1, 1); % as tile, tilenr
 Scatter_TAC_Sham(Results, 'Diameter', 'MeanVelocity_xcorr', 1, 2); % as tile, tilenr
@@ -296,15 +303,23 @@ Scatter_TAC_Sham(Results, 'MeanVelocity_xcorr', 'Pulsatility_xcorr', 1, 4);
 Scatter_TAC_Sham(Results, 'Diameter', 'Pulsatility_fft', 1, 5);
 Scatter_TAC_Sham(Results, 'Diameter', 'Pulsatility_xcorr', 1, 6);
 
-Boxplot_TAC_Sham(Results, '')
-Boxplot_TAC_Sham(Results, 'Pulsatility_fft', 'Vessel')
+% boxplots
+figure('Color',  'white'); tiledlayout('flow')
+Boxplot_TAC_Sham(Results, 'Pulsatility_fft','Vesselgroup', 1, 1);
+Boxplot_TAC_Sham(Results, 'Pulsatility_xcorr','Vesselgroup', 1, 2);
+Boxplot_TAC_Sham(Results, 'MeanVelocity_fft','Vesselgroup', 1, 3);
+Boxplot_TAC_Sham(Results, 'MeanVelocity_xcorr','Vesselgroup', 1, 4);
 
-Results = Results(Results.Diameter<5,:);
 
 
 %% proof surgery worked
-% import TACstats
-TACstats.Mouse = cellstr(TACstats.Mouse);
+% % import TACstats
+% TACstats.Mouse = cellstr(TACstats.Mouse);
+
+% Get right markers
+% note: M18 and M19 have no imaging because of bleeding. Give '*' marker and make gray
+SaveDirectory = 'D:\FACED\Data P3\';
+load([SaveDirectory 'Results.mat'], 'Results')
 
 for indMouse = 1:size(TACstats,1)
     try
@@ -312,16 +327,28 @@ for indMouse = 1:size(TACstats,1)
         tempind = tempind(1);
         TACstats.Markertype(indMouse) = Results.Markertype(tempind);
     catch
-        TACstats.Markertype(indMouse) = {'hexagram'};
+        TACstats.Markertype(indMouse) = {'*'};
     end
 end
+
+% save
+save('D:\FACED\Data P3\TACstats.mat', 'TACstats');
+
+load('D:\FACED\Data P3\TACstats.mat');
+
 
 figure('Color',  'white'); tiledlayout('flow')
 % Boxplot_TAC_Sham(TACstats, 'HW_BW', 'Sex', 1, 1);  % as tile, tilenr
 % ylabel('heartweight (mg)/bodyweight (g)')
+
+f = figure('Color',  'white'); tiledlayout('flow')
 Boxplot_TAC_Sham(TACstats, 'HW_BW', [], 1, 2);  % as tile, tilenr
-ylabel('heartweight (mg)/bodyweight (g)')
+ylabel('hw/bw in mg/g')
+title('TAC surgery verification')
+f.Position = [800  450  500  350];
 
 % Stats
 [h, p] = ttest2(TACstats(TACstats.Group == 'TAC',:).HW_BW, TACstats(TACstats.Group == 'Sham',:).HW_BW);
-title(['p = ' num2str(p)])
+subtitle(['p = ' num2str(p)])
+
+saveas(gcf, 'E:\PhD\P3 - Ultrafast two photon\Article\Figures and images\TAC_hw_bw.svg');

@@ -15,9 +15,9 @@ end
 if exist([SaveDirectory 'Results.mat'], 'file')
     load([SaveDirectory 'Results.mat'], 'Results');
 else
-    varNames = {'Mouse', 'Group', 'Acq', 'ScanType', 'Vessel', 'Diameter', 'MeanVelocity_xcorr', 'Pulsatility_xcorr', 'MeanVelocity_fft', 'Pulsatility_fft', 'Depth', 'UseAcq', 'Markertype'};
+    varNames = {'Mouse', 'Group', 'Acq', 'ScanType', 'Vessel', 'Diameter', 'MeanVelocity_xcorr', 'Pulsatility_xcorr', 'MeanVelocity_fft', 'Pulsatility_fft', 'Depth', 'UseAcq', 'Markertype', 'Markerfilled', 'VesselType'};
     sz = [0 size(varNames,2)];
-    varTypes = {'cell', 'categorical' 'cell', 'cell', 'cell', 'double', 'double', 'double', 'double', 'double', 'double', 'categorical', 'cell'};
+    varTypes = {'cell', 'categorical' 'cell', 'cell', 'cell', 'double', 'double', 'double', 'double', 'double', 'double', 'categorical', 'cell', 'cell', 'categorical'};
     Results = table('size', sz, 'VariableTypes', varTypes, 'VariableNames',varNames);
     clear sz varTypes varNames
 end
@@ -49,9 +49,9 @@ for indMouse = 1:length(Mice)
     if any(contains(Results.Mouse, Mice{indMouse})) && overwrite == 0
         MouseResults = Results(matches(Results.Mouse, Mice{indMouse}),:);
     else
-        varNames = {'Mouse', 'Group', 'Acq', 'ScanType', 'Vessel', 'Diameter',  'MeanVelocity_xcorr', 'Pulsatility_xcorr', 'MeanVelocity_fft', 'Pulsatility_fft','Depth', 'UseAcq', 'Markertype'};
+        varNames = {'Mouse', 'Group', 'Acq', 'ScanType', 'Vessel', 'Diameter',  'MeanVelocity_xcorr', 'Pulsatility_xcorr', 'MeanVelocity_fft', 'Pulsatility_fft','Depth', 'UseAcq', 'Markertype', 'Markerfilled', 'VesselType'};
         sz = [0 size(varNames,2)];
-        varTypes = {'cell', 'categorical' 'cell', 'cell', 'cell', 'double', 'double', 'double', 'double', 'double', 'double','categorical', 'cell'};
+        varTypes = {'cell', 'categorical' 'cell', 'cell', 'cell', 'double', 'double', 'double', 'double', 'double', 'double','categorical', 'cell','cell', 'categorical'};
         MouseResults = table('size', sz, 'VariableTypes', varTypes, 'VariableNames',varNames);
         clear sz varTypes varNames
     end
@@ -159,12 +159,12 @@ for indMouse = 1:length(Mice)
         % plot all kymographs of coupled acqs.
         f1 = figure('units','normalized','outerposition',[0 0 1 1]);
         tiledlayout('Vertical');
-        secs_plotted =0.5;
+        secs_plotted =3;
         for c_acq_ind = 1:length(coupled_acq_list)
             if exist([MouseFolder coupled_acq_list{c_acq_ind} filesep 'kymoROI_1.mat'], 'file') && ...
                     exist([MouseFolder coupled_acq_list{c_acq_ind} filesep 'AcqInfos.mat'], 'file')
                 
-                load([MouseFolder coupled_acq_list{c_acq_ind} filesep 'kymoROI_1.mat'], 'kymoImg', 'PixelSize', 'ROI_info');
+                load([MouseFolder coupled_acq_list{c_acq_ind} filesep 'kymoROI_1.mat'], 'kymoImg', 'PixelSize', 'ROI_info', 'Velocity_calc');
                 load([MouseFolder coupled_acq_list{c_acq_ind} filesep 'AcqInfos.mat'], 'AcqInfoStream');
                 if isfield(AcqInfoStream, 'FrameRateHzLinescan')
                     frmRate = AcqInfoStream.FrameRateHzLinescan;
@@ -177,16 +177,19 @@ for indMouse = 1:length(Mice)
                     kymoImg = [kymoImg; NaN(round(frmRate*secs_plotted)-size(kymoImg, 1), size(kymoImg,2))];
                 end
 
-                if exist('PixelSize', 'var')
+                if exist('PixelSize', 'var') && exist('Velocity_calc','var')
+                    Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secs_plotted, Velocity_calc.fft.velocity, 1);
+                    hold on; plot(Velocity_calc.xcorr_range.velocity,'-','Color', 'green', 'LineWidth',2);
+                elseif exist('PixelSize', 'var') 
                     Plot_Kymograph(kymoImg, frmRate, PixelSize.pxlSize, secs_plotted, [], 1);
                 else
                     Plot_Kymograph(kymoImg, frmRate, [], secs_plotted, [], 1);
                 end
                 
                 if isfield(ROI_info, 'calculate_velocity')
-                    title([coupled_acq_list{c_acq_ind} ' - Calculate velocity: ' ROI_info.calculate_velocity]);
+                    title([AcqInfoStream.Mouse coupled_acq_list{c_acq_ind} ' - Calculate velocity: ' ROI_info.calculate_velocity]);
                 else
-                    title([coupled_acq_list{c_acq_ind} ' - Calculate velocity: unknown']);
+                    title([AcqInfoStream.Mouse coupled_acq_list{c_acq_ind} ' - Calculate velocity: unknown']);
                 end
                 clear AcqInfoStream kymoImg PixelSize ROI_info
 
@@ -201,6 +204,14 @@ for indMouse = 1:length(Mice)
             'ListString', coupled_acq_list);
         close(f1)
 
+        if isempty (best_kymo_ind)
+            breakpointanswer = questdlg('Do you want to break or were none of them good?', 'x', 'Break', 'None of them good', ' Break');
+        end
+        if matches(breakpointanswer, 'Break')
+            break
+        % elseif matches(breakpointanswer, 'None of them good')
+            
+        end
 
         % Add codes to table
         UseAcqCodes = zeros(1,length(coupled_acq_list));
@@ -220,10 +231,10 @@ for indMouse = 1:length(Mice)
 
 
         % give breakpoint for yourself
-        breakpointanswer = questdlg('Do you want to break?');
-        if matches(breakpointanswer, 'Yes')
-            break
-        end
+        % breakpointanswer = questdlg('Do you want to break?');
+        % if matches(breakpointanswer, 'Yes')
+        %     break
+        % end
 
     end
 

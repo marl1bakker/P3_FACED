@@ -18,8 +18,6 @@
 % - exclusionmethod is based on the fit itself ('rsquares') or based on
 %       outlier detection ('outliers')
 
-
-
 % MB: Was LSPIV_parallel in original.
 % Adapted by Marleen (MB) 15-8-2024. For more annotations see original.
 % % For additional information, please see corresponding manuscript:
@@ -63,49 +61,18 @@ end
 
 
 %% old method
-if contains(method, {'old', 'fft'})
-    method = 'fft';
-    % Parameters to improve fits
-    maxGaussWidth = 100;  % maximum width of peak during peak fitting
-
-    % Judge correctness of fit
-    numstd        = 3;  %num of stdard deviation from the mean before flagging
-    windowsize    = frmRate/2; % windowsize is only used for detecting bad fits
-    % In the original code, this was the description:
-    %"in # scans, this will be converted to velocity points
-    %if one scan is 1/2600 s, then windowsize=2600 means
-    %a 1 second moving window.  Choose the window size
-    %according to experiment."
-    % But as far as I (MB) can see it's only determining the windowsize of the
-    % bad fit detection and does not change the nr of velocity points.
-
-
-    % added 12/6/2025
-    shiftamt = 5;
-    numavgs = 100;
-
-    % if matches(AcqInfoStream.Vessel, 'Capillary')
-    %     % est_um_per_sec = 1000; % um/sec estimated speed, can also be around 8 mm/s (fig 4 meng) or 0.2 (fig 3 meng)
+if contains(method, {'old', 'fft', 'bla'})
     % 
-    %     shiftamt      = 5;
-    %     % numavgs       = 25;
-    %     numavgs = 50;
-    %     % skipamt       = 25;   %if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc.
-    % elseif matches(AcqInfoStream.Vessel, 'Artery') || matches(AcqInfoStream.Vessel, 'Arteriole')
-    %     % 30 mm/s (fig 2 meng), fig 5 shows 6 mm/s or 8 mm/s though
-    %     % ??10-35 cm/s carotid -- In Vivo MRI Assessment of Blood Flow in Arteries and Veins from Head-to-Toe Across Age and Sex in C57BL/6 Mice
-    %     % est_um_per_sec = 30000;
-    %     % est_um_per_sec = 10000;
-    %     numavgs       = 50;  %up to 100 (or more) for noisy or slow data
-    %     % skipamt       = 25;
-    %     shiftamt      = 2; 
-    %     skipamt = 2;
-    % elseif matches(AcqInfoStream.Vessel, 'Vein') || matches(AcqInfoStream.Vessel, 'Venule')
-    %     % est_um_per_sec = 5000; % 5 mm/s (fig 2, 3, 5 meng)
-    %     numavgs       = 100;  %up to 100 (or more) for noisy or slow data
-    %     % skipamt       = 25;
-    %     shiftamt      = 1;
-    % end
+    
+    % Optimized parameters
+    maxGaussWidth = 100;
+    numstd = 3;
+    windowsize = frmRate/2;
+    shiftamt = 5; 
+    numavgs = 100;
+    
+    % Pre-calculate batch size for processing
+    batch_size = min(50, frmRate/10); % Process in batches to reduce memory usage
 end
 
 
@@ -134,14 +101,27 @@ for ind_kymo = 1:length(kymograph_list)
         ROIname = [ROIname '.mat'];
     end
     warning('off');
-    load([DataFolder ROIname], 'kymoImg', 'PixelSize', 'Velocity_calc', 'ROI_type', 'ROI_info', 'RBC');
+    load([DataFolder ROIname], 'kymoImg', 'Velocity_calc', 'ROI_type', 'ROI_info', 'RBC');
     warning('on');
 
     %% temp 12-6-25 to speed up process
-    if matches(method, 'fft')
+    if matches(method, 'fft') || matches(method, 'bla')
         % weird nr to make fit with pulsatility calc. Could be 1*shiftamt
-        kymoImg = kymoImg(1:round(2*frmRate)+numavgs+(2*shiftamt)+1,:);
+        % kymoImg = kymoImg(1:round(2*frmRate)+numavgs+(2*shiftamt)+1,:);
+        % kymoImg = kymoImg(1:round(frmRate*0.50),:);
     end
+
+    % if matches(ROI_info.orientation, 'Forwards')
+    %     kymoImg = fliplr(kymoImg);
+    % else
+
+    % end
+    if matches(method, 'xcorr')
+        skipamt = max(3, round(ROI_info.est_frames_to_cross_kymo/5));
+    end
+
+    % shiftamt = max(3, ROI_info.est_frames_to_cross_kymo/5);
+    % numavgs = ROI_info.est_frames_to_cross_kymo/5;
 
     % if contains(ROI_type, 'perpendicular')
     if ~contains(ROI_type, 'line')
@@ -166,156 +146,173 @@ for ind_kymo = 1:length(kymograph_list)
 
 
     %% Both methods - Get pixelsize - once
-    % moved to make_kymograph
-    % if ~exist('PixelSize', 'var')
-    %     [PixelSize] = Pixelsize_ROI(DataFolder, ROIname);
-    % end
-    % pxlSize = PixelSize.pxlSize;
-    % error('think of pixelsize')
-    pxlSize = 1; % TRY 
-    clear PixelSize
+    pxlSize = 1; % Calculated with beads calibration
+    % note: if you have a differnt system, this will be different!!
 
-
-    %% Both methods - Spot where there are no RBC - once
-    % if ~exist('RBC', 'var')
-    %     [RBC] = RBC_presence(DataFolder, ROIname, 1);
-    % end
-    % no_rbc = RBC.no_rbc;
-    % segments = RBC.segments;
-    % clear RBC
-
-
-    %% Both methods - Clean up kymo
-    % kymoImg = movmean(kymoImg, 20, 1); % old: changed 17-4-25. With very fast vessels this blurs instead of makes more clear
-    kymoImg = movmean(kymoImg, ROI_info.est_frames_to_cross_kymo/10, 1);
-    DCoffset = sum(kymoImg,1) / size(kymoImg,1);
-    imageLinesDC = kymoImg - repmat(DCoffset,size(kymoImg,1),1);
-
-    % get rid of differences in imaging strenght over the imageing line 21/4/25
-    profile = mean(abs(imageLinesDC),1);
-    profile_offset = mean(profile,2);
-    correction_factor = (profile-profile_offset)*-1 + profile_offset;
-    imageLinesDC = imageLinesDC .* correction_factor;
-    clear profile profile_offset correction_factor
-
-    % X = [ones(size(imageLinesDC,2),1), mean(imageLinesDC,1)'];
-    % B = X\imageLinesDC';
-    % bla = imageLinesDC' - X'*B;
-
-    % MB: get rid of slow freq variations [Dxx,Dxy,Dyy] = Hessian2D(I,Sigma)
-    % if linescan is not long enough it will give weird results
-    % if size(kymoImg,2)>20 && ROI_info.est_mm_per_sec < 5 % changed 17-4-25
-    %     Sigma = 6/pxlSize; % RBC is about 6 micron
-    %     [Dxx, Dxy, Dyy] = Hessian2D(imageLinesDC', Sigma);
-    %     imageLinesDC = (-Dyy-Dxy)';
-    %     clear Dxx Dxy Dyy DCoffset
-    % else
-    %     % disp('CHECK WHAT TO DO')
-    % end
-
-    % %% Both methods - get number of frames to skip for correlation and
-    % %% identify orientation -- moved to make_kymograph
-    % % Do this after cleaning up kymo so it's easier to see
-    % % options of calculations are "whole" for estimating how long one rbc
-    % % takes to cross the entire kymo, or "part" where you can take two
-    % % points.
+    % %% Both methods - Clean up kymo - old
+    % kymoImg = movmean(kymoImg, ROI_info.est_frames_to_cross_kymo/10, 1);
+    % DCoffset = sum(kymoImg,1) / size(kymoImg,1);
+    % imageLinesDC = kymoImg - repmat(DCoffset,size(kymoImg,1),1);
     % 
-    % if exist('Velocity_calc', 'var') && isfield(Velocity_calc, 'skipamt')
-    %     skipamt = Velocity_calc.skipamt;
-    %     est_mm_per_sec = Velocity_calc.est_mm_per_sec;
-    %     orientation = Velocity_calc.orientation;
-    %     try
-    %         est_frames_to_cross_kymo = Velocity_calc.est_frames_to_cross_kymo;
-    %     catch % temp patch
-    %         est_frames_to_cross_kymo = 4*skipamt;
-    %         Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
-    %         save([DataFolder ROIname], 'Velocity_calc',  '-append')
-    %     end
-    % else
-    %     [skipamt, est_frames_to_cross_kymo, ~, est_mm_per_sec] = calc_skip_amount(kymoImg, frmRate, pxlSize, 'part');
-    %     % [skipamt, ~, ~, est_mm_per_sec] = calc_skip_amount(imageLinesDC, frmRate, pxlSize, 'part');
-    %     Velocity_calc.skipamt = skipamt;
-    %     Velocity_calc.est_mm_per_sec = est_mm_per_sec;
-    %     [orientation] = identify_orientation(kymoImg, frmRate);
-    %     Velocity_calc.orientation = orientation;
-    %     Velocity_calc.est_frames_to_cross_kymo = est_frames_to_cross_kymo;
-    %     save([DataFolder ROIname], 'Velocity_calc',  '-append')
-    % end
+    % % get rid of differences in imaging strenght over the imageing line 21/4/25
+    % profile = mean(abs(imageLinesDC),1);
+    % profile_offset = mean(profile,2);
+    % correction_factor = (profile-profile_offset)*-1 + profile_offset;
+    % imageLinesDC = imageLinesDC .* correction_factor;
+    % clear profile profile_offset correction_factor
+
+    %% Clean up kymo - optimized
+    % Pre-calculate moving average window
+    mov_window = max(1, round(ROI_info.est_frames_to_cross_kymo/10));
+    kymoImg = movmean(kymoImg, mov_window, 1);
+    
+    % Vectorized DC offset removal
+    DCoffset = mean(kymoImg, 1);
+    imageLinesDC = kymoImg - DCoffset;
+    
+    % Vectorized intensity correction
+    profile = mean(abs(imageLinesDC), 1);
+    profile_offset = mean(profile);
+    correction_factor = (profile - profile_offset) * -1 + profile_offset;
+    imageLinesDC = imageLinesDC .* correction_factor;
 
 
     %% Method old/1/fft
     if contains(method, {'old', 'fft'})
-        startColumn = 1;
-        endColumn = size(kymoImg,2);
+        method = 'fft';
 
-        scene_fft  = fft(imageLinesDC(1:end-shiftamt,:),[],2);
-        test_img   = zeros(size(scene_fft));
-        test_img(:,startColumn:endColumn)   = imageLinesDC(shiftamt+1:end, startColumn:endColumn);
-        test_fft   = fft(test_img,[],2);
-        W      = 1./sqrt(abs(scene_fft)) ./ sqrt(abs(test_fft)); % phase only
+        % Pre-allocate arrays
+        num_lines = size(imageLinesDC,1) - shiftamt;
+        index_vals = 1:num_lines - numavgs;
+        numpixels = size(imageLinesDC,2);
+% checked with artificial kymo, when width is 44, center should be 23!! in 
+% this case, the velocity calculation is similar to that of an odd width
+% kymograph. With 22 or 22.5 as center, a forward kymograph will
+% underestimate and a backward kymo will overestimate the velocity. 
+        centerPixel = ceil(numpixels+1)/2;
 
-        LSPIVresultFFT      = scene_fft .* conj(test_fft) .* W;
-        LSPIVresult         = ifft(LSPIVresultFFT,[],2);
+        % Pre-allocate output arrays
+        velocity = nan(length(index_vals), 1);
+        amps = nan(length(index_vals), 1);
+        sigmas = nan(length(index_vals), 1);
+        goodness = nan(length(index_vals), 1);
+
+        % Batch FFT processing
+        b = waitbar(0, 'Computing velocity...');
+        % fprintf('Computing FFTs for %d lines...\n', num_lines);
+
+       % Compute all FFTs at once
+        scene_data = imageLinesDC(1:num_lines,:);
+        test_data = imageLinesDC(shiftamt+1:num_lines+shiftamt,:);
+
+        % % Vectorized FFT computation
+        scene_fft = fft(scene_data, [], 2);
+        test_fft = fft(test_data, [], 2);
+        
+        % Vectorized weight calculation
+        W = 1 ./ sqrt(abs(scene_fft)) ./ sqrt(abs(test_fft));
+        
+        % Vectorized cross-correlation
+        LSPIVresultFFT = scene_fft .* conj(test_fft) .* W;
+        LSPIVresult = ifft(LSPIVresultFFT, [], 2);
+        
+        % bla = NaN(size(test_data,1), size(test_data,2)*2-1);
+        % for index = 1:size(scene_data,1)
+        %     bla(index, :) = xcorr(scene_data(index,:), test_data(index,:), 'normalized');
+        % end
+
+        % Batch processing for peak fitting
+        fprintf('Processing %d velocity points in batches...\n', length(index_vals));
+        
+        % Pre-calculate search bounds
+        maxpxlshift = round(numpixels/2) - 1;
+        searchStart = max(1, round(centerPixel - maxpxlshift));
+        % searchStart = 1;
+        searchEnd = min(numpixels, round(centerPixel + maxpxlshift));
+        
+        % Pre-allocate fit options
+        options = fitoptions('gauss1');
+        options.Lower = [0, searchStart, 0, 0];
+        options.Upper = [1e9, searchEnd, maxGaussWidth, 1];
+        
+        % Process in batches to reduce memory usage
+        batch_indices = 1:batch_size:length(index_vals);
+
+        for batch_start = batch_indices
+            batch_end = min(batch_start + batch_size - 1, length(index_vals));
+            batch_range = batch_start:batch_end;
+
+            waitbar(find(batch_indices == batch_start)/length(batch_indices), b)
+
+            % Vectorized averaging and peak finding
+            for indbatch = 1:length(batch_range)
+                index = batch_range(indbatch);
+                actual_index = index_vals(index);
+
+                % Vectorized averaging
+                segment_indices = actual_index:(actual_index + numavgs);
+                LSPIVresult_segment = LSPIVresult(segment_indices, :);
+                LSPIVresult_AVG = fftshift(sum(LSPIVresult_segment, 1, 'omitnan'));
+                LSPIVresult_AVG = LSPIVresult_AVG / max(LSPIVresult_AVG);
+                
+                % Efficient peak finding
+                c = zeros(1, numpixels);
+                c(searchStart:searchEnd) = LSPIVresult_AVG(searchStart:searchEnd);
+                [~, maxindex] = max(c);
+                
+                % Optimized fitting with better initial guess
+                options.StartPoint = [max(LSPIVresult_AVG), maxindex, 10, 0.1];
 
 
-        % find shift amounts
-        index_vals = 1:size(LSPIVresult,1)-numavgs;
-        numpixels = size(LSPIVresult,2);
+                % % new 15-7                
+                % % only take current peak of linecorr so that the fit makes sense
+                % try
+                %     [~, lowind] = findpeaks(LSPIVresult_AVG(1:maxindex)*-1); % find lows
+                %     lowbefore = lowind(end);
+                % catch
+                %     lowbefore = 1;
+                % end
+                % try
+                %     [~, lowind] = findpeaks(LSPIVresult_AVG(maxindex:end)*-1);
+                %     lowafter = lowind(1)+maxindex-1;
+                % catch
+                %     lowafter = length(LSPIVresult_AVG);
+                % end
+                % 
+                % linecorrtofit = [repmat(LSPIVresult_AVG(lowbefore), lowbefore-1,1)' ...
+                %     LSPIVresult_AVG(lowbefore:lowafter) ...
+                %     repmat(LSPIVresult_AVG(lowafter), length(LSPIVresult_AVG)-lowafter,1)'];
 
-        velocity  = nan(size(index_vals));
-        amps      = nan(size(index_vals));
-        sigmas    = nan(size(index_vals));
-        goodness  = nan(size(index_vals));
+                
+                warning('off', 'curvefit:fit:noStartPoint');
+                try
+                    [q, good] = fit((1:length(LSPIVresult_AVG))', LSPIVresult_AVG', ...
+                        'a1*exp(-((x-b1)/c1)^2) + d1', options);
+                    
+                    velocity(index) = (q.b1 - centerPixel) / shiftamt;
+                    amps(index) = q.a1;
+                    sigmas(index) = q.c1;
+                    goodness(index) = good.rsquare;
 
-        % iterate through
-        b = waitbar(0, 'Finding best fit per line...');
-
-        minGaussWidth = 0;
-        maxpxlshift = round(size(kymoImg,2)/2)-1;
-
-        for index = 1:length(index_vals)
-
-            if mod(index_vals(index),100) == 0
-                waitbar(index/length(index_vals), b)
+                    % [q, good] = fit((1:length(linecorrtofit))', linecorrtofit', ...
+                    %     'a1*exp(-((x-b1)/c1)^2) + d1', options);
+                    
+                    % velocity_x(index) = (q.b1 - centerPixel) / shiftamt;
+                    
+                catch
+                    velocity(index) = NaN;
+                    amps(index) = NaN;
+                    sigmas(index) = NaN;
+                    goodness(index) = NaN;
+                end
+                warning('on', 'curvefit:fit:noStartPoint');
             end
-
-
-            % LSPIVresult_AVG   = fftshift(sum(LSPIVresult(index_vals(index):index_vals(index)+numavgs,:),1)) ...
-            %     / max(sum(LSPIVresult(index_vals(index):index_vals(index)+numavgs,:),1)); % problem: sometimes a NaN line in LSPIVresult
-            LSPIVresult_AVG   = fftshift(sum(LSPIVresult(index_vals(index):index_vals(index)+numavgs,:),1, 'omitnan')) ...
-                / max(sum(LSPIVresult(index_vals(index):index_vals(index)+numavgs,:),1, 'omitnan'));
-
-
-            % find a good guess for the center
-            c = zeros(1, numpixels);
-            c(round(numpixels/2-maxpxlshift):round(numpixels/2+maxpxlshift)) = ...
-                LSPIVresult_AVG(round(numpixels/2-maxpxlshift):round(numpixels/2+maxpxlshift));
-            [~, maxindex] = max(c);
-
-            % fit a guassian to the xcorrelation to get a subpixel shift
-            options = fitoptions('gauss1');
-            % options.Lower      = [0    numpixels/2-maxpxlshift   0            0];
-            options.Lower      = [0    numpixels/2-maxpxlshift   minGaussWidth            0];
-            options.Upper      = [1e9  numpixels/2+maxpxlshift  maxGaussWidth 1];
-            options.StartPoint = [1 maxindex 10 .1];
-            warning('off')
-            try
-                [q,good] = fit((1:length(LSPIVresult_AVG))',LSPIVresult_AVG','a1*exp(-((x-b1)/c1)^2) + d1',options);
-            catch
-                disp('x')
-            end
-            warning('on')
-
-            %save the data
-            velocity(index)  = (q.b1 - size(LSPIVresult,2)/2 - 1)/shiftamt;
-
-            amps(index)      = q.a1;
-            sigmas(index)    = q.c1;
-            goodness(index)  = good.rsquare;
-
         end
-        close(b)
-        clear amps sigmas q index minGaussWidth maxpxlshift options b
+        
+        clear amps sigmas options batch_indices
+close(b)
+
+
 
         %% find bad fits
         % toc
@@ -328,22 +325,25 @@ for ind_kymo = 1:length(kymograph_list)
                 badvals = find(goodness<0.1);
 
             case 'outliers'
-                % method 2: outliers
-                % This is method used by Na Ji paper
-                % Find bad velocity points using a moving window
-                pixel_windowsize = round(windowsize / skipamt);
-
+                % % method 2: outliers
+                % % This is method used by Na Ji paper
+                % % Find bad velocity points using a moving window
+                pixel_windowsize = round(windowsize / shiftamt);
                 badpixels = zeros(size(velocity));
-                for index = 1:1:length(velocity)-pixel_windowsize
-                    pmean = mean(velocity(index:index+pixel_windowsize-1)); %partial window mean
-                    pstd  = std(velocity(index:index+pixel_windowsize-1));  %partial std
-
-                    pbadpts = find((velocity(index:index+pixel_windowsize-1) > pmean + pstd*numstd) | ...
-                        (velocity(index:index+pixel_windowsize-1) < pmean - pstd*numstd));
-
-                    badpixels(index+pbadpts-1) = badpixels(index+pbadpts-1) + 1; %running sum of bad pts
+                
+                % Vectorized outlier detection
+                for index = 1:(length(velocity) - pixel_windowsize)
+                    window_data = velocity(index:(index + pixel_windowsize - 1));
+                    pmean = mean(window_data, 'omitnan');
+                    pstd = std(window_data, 'omitnan');
+                    
+                    outliers = (window_data > pmean + pstd * numstd) | ...
+                              (window_data < pmean - pstd * numstd);
+                    
+                    badpixels(index + find(outliers) - 1) = badpixels(index + find(outliers) - 1) + 1;
                 end
-                badvals  = find(badpixels > 0); % turn pixels into indicies
+                
+                badvals = find(badpixels > 0);
                 goodvals = find(badpixels == 0);
         end
 
@@ -362,6 +362,8 @@ for ind_kymo = 1:length(kymograph_list)
             velocity = -velocity;
         end
 
+        % velocity_x = velocity_x * pxlSize / 1000 * frmRate;
+
     elseif matches(method, {'new', 'xcorr'})
         method = 'xcorr';
         orientation = ROI_info.orientation;
@@ -371,6 +373,13 @@ for ind_kymo = 1:length(kymograph_list)
         middle = ceil(size(imageLinesDC,2)/2);
         maxlag = round(size(imageLinesDC,2)/2)-1;
         LSPIV_xcorr = nan(size(kymoImg, 1)-skipamt, maxlag*2+1);
+        velocity = nan(size(kymoImg, 1), 1);
+
+              % Pre-allocate fit options
+        options = fitoptions('gauss1');
+        options.Lower = [0, 1, 0, 0];
+        maxGaussWidth = 100;
+        options.Upper = [1e9, size(imageLinesDC,2), maxGaussWidth, 1];
 
         if matches(orientation, 'Forwards')
             % peak should be at the first half of the xcorr
@@ -378,7 +387,57 @@ for ind_kymo = 1:length(kymograph_list)
                 linecorr = xcorr(imageLinesDC(ind_corr,:), imageLinesDC(ind_corr+skipamt,:), 'normalized', maxlag);
                 LSPIV_xcorr(ind_corr,:) = linecorr;
 
+                % [max_corr_val, max_corr_ind] = max(linecorr);
+                % if max_corr_ind >= middle
+                %     continue
+                % end
                 [max_corr_val, max_corr_ind] = max(linecorr(:,1:middle));
+                
+                % Optimized fitting with better initial guess
+                options.StartPoint = [max_corr_val, max_corr_ind, 10, 0.1];
+                
+                % only take current peak of linecorr so that the fit makes sense
+                try
+                [~, lowind] = findpeaks(linecorr(1:max_corr_ind)*-1); % find lows
+                catch
+                    disp('x')
+                    continue
+                end
+                if ~isempty(lowind)
+                    lowbefore = lowind(end);
+                else 
+                    lowbefore = 1;
+                end
+                try
+                [~, lowind] = findpeaks(linecorr(max_corr_ind:end)*-1);
+                catch
+                    disp('xx')
+                end
+                if ~isempty(lowind)
+                    lowafter = lowind(1)+max_corr_ind-1;
+                else 
+                    lowafter = length(linecorr);
+                end                
+
+                linecorrtofit = [repmat(linecorr(lowbefore), lowbefore-1,1)' ...
+                    linecorr(lowbefore:lowafter) ...
+                    repmat(linecorr(lowafter), length(linecorr)-lowafter,1)'];
+
+                warning('off', 'curvefit:fit:noStartPoint');
+                try
+                    % [q, good] = fit((1:length(linecorr))', linecorr', ...
+                    %     'a1*exp(-((x-b1)/c1)^2) + d1', options);
+                    [q, good] = fit((1:length(linecorrtofit))', linecorrtofit','a1*exp(-((x-b1)/c1)^2) + d1', options);
+
+                    velocity(ind_corr) = (middle-q.b1) / skipamt;
+                    
+                catch
+                    velocity(index) = NaN;
+                    % amps(index) = NaN;
+                    % sigmas(index) = NaN;
+                    % goodness(index) = NaN;
+                end
+                warning('on', 'curvefit:fit:noStartPoint');
 
                 shift_amounts(ind_corr) = middle-max_corr_ind;
                 corr_values(ind_corr) = max_corr_val;
@@ -392,22 +451,19 @@ for ind_kymo = 1:length(kymograph_list)
 
                 [max_corr_val, max_corr_ind] = max(linecorr(:,middle:end));
 
-                shift_amounts(ind_corr) = max_corr_ind-1; %because if corr is highest at middle, you need to get 0
+                shift_amounts(ind_corr) = -(max_corr_ind-1); %because if corr is highest at middle, you need to get 0
                 corr_values(ind_corr) = max_corr_val;
             end
         end
 
-        % verify:
-        if matches(orientation, 'Forwards')
-            shift_amt = middle-max_corr_ind; %fwd - shift forward to "middle"
-        else
-            shift_amt = -(max_corr_ind-1); % bkwd - minus bc shift to the left
-        end
-        figure;tiledlayout('vertical')
-        nexttile; plot(linecorr);
-        nexttile; imagesc(imageLinesDC(ind_corr,:), [-1 1]); title(['frame ' num2str(ind_corr)])
-        nexttile; imagesc(imageLinesDC(ind_corr+skipamt,:), [-1 1]); title(['frame ' num2str(ind_corr+skipamt)])
-        nexttile; imagesc(circshift(imageLinesDC(ind_corr,:), shift_amt), [-1 1]); title(['frame ' num2str(ind_corr) ' shifted'])
+
+        % figure;tiledlayout('vertical')
+        % nexttile; plot(linecorr);
+        % nexttile; imagesc(imageLinesDC(ind_corr,:)); title(['frame ' num2str(ind_corr)])
+        % nexttile; imagesc(imageLinesDC(ind_corr+skipamt,:)); title(['frame ' num2str(ind_corr+skipamt)])
+        % 
+        % nexttile; imagesc(circshift(imageLinesDC(ind_corr,:), shift_amounts(ind_corr))); title(['frame ' num2str(ind_corr) ' shifted'])
+
 
         % numavgs = 0; % tried up to 5, doesnt make a big difference.
         % for ind_corr = 1:size(kymoImg,1)-skipamt-numavgs
@@ -420,7 +476,8 @@ for ind_kymo = 1:length(kymograph_list)
         %     corr_values(ind_corr) = max_corr_val;
         % end
 
-        velocity = shift_amounts*pxlSize*(frmRate/skipamt)/1000; % in mm/sec
+        % velocity = shift_amounts*pxlSize*(frmRate/skipamt)/1000; % in mm/sec
+        velocity = velocity * pxlSize / 1000 * frmRate;
 
         % index_vals = 1:size(LSPIV_xcorr,1)-numavgs;
         threshold_corr = 0.5;
@@ -563,13 +620,23 @@ for ind_kymo = 1:length(kymograph_list)
 close(f2)
                 end
 
-    elseif matches(orientation, 'varies')
+    % elseif matches(orientation, 'varies')
         % to do: code for if the rbc's also go backwards sometimes.
         % for example: check where peak lies for three frames further,
         % or take peak around middle instead of on one side.
 
         % end % orientation
 
+    elseif matches(method, 'bla')
+        % maxlag = round(size(imageLinesDC,2)/2)-1;
+        % skipamt = max(3, round(ROI_info.est_frames_to_cross_kymo/5));
+        % 
+        % velocity = nan(size(imageLinesDC,2),1);
+        % for ind_corr = 1:size(kymoImg,1)-skipamt
+        % 
+        %     [vel, fit_quality, peakinfo] = improved_peak_fitting(imageLinesDC, ind_corr, skipamt, maxlag, 'PreviousVelocity', ROI_info.est_mm_per_sec);
+        %     velocity(ind_corr) = vel;
+        % end
     end %methods
 
 
@@ -578,9 +645,8 @@ close(f2)
     meanvel  = mean(velocity(goodvals), 'omitnan'); %overall mean (exclude bad fits)
     stdvel   = std(velocity(goodvals), 'omitnan');  %overall std
 
-    disp(['Estimated velocity was ' num2str(ROI_info.est_mm_per_sec), ...
-        ', mean calculated velocity was ' num2str(meanvel)])
-
+    fprintf('Estimated velocity: %.2f mm/s, Calculated mean: %.2f mm/s\n', ...
+        ROI_info.est_mm_per_sec, meanvel);
 
     %% show results
     if show_plots
@@ -674,6 +740,20 @@ close(f2)
     %% save stuff
     % savefig(f5, [DataFolder 'Kymograph_overview.fig']);
 
+    %% temp to check if it makes sense
+    if isfield(Velocity_calc, 'fft') && ~isfield(Velocity_calc, 'old_fft')
+        f10 = figure;
+        plot(Velocity_calc.fft.velocity);
+        hold on
+        plot(velocity)
+        legend({'old way', 'new way'})
+        % check if it makes sense
+
+        % keep old calculation
+        Velocity_calc.fft_old = Velocity_calc.fft;
+        close(f10)
+    end
+
     Velocity_calc.(method).velocity = velocity;
     Velocity_calc.(method).goodvals = goodvals;
     Velocity_calc.(method).badvals = badvals;
@@ -698,165 +778,6 @@ close(f2)
 
 
 end
-
-%% show all velocity calcs
-if show_plots
-    kymograph_list = dir([DataFolder 'kymoROI*.mat']);
-    kymograph_list = struct2cell(kymograph_list);
-    kymograph_list = kymograph_list(1,:);
-
-    figure
-    hold on
-    legendnames = {};
-
-    % go per kymograph
-    for ind_kymo = 1:length(kymograph_list)
-        ROIname = kymograph_list{ind_kymo};
-        warning('off');
-        load([DataFolder ROIname], 'Velocity_calc', 'ROI_type');
-        warning('on');
-
-        if contains(ROI_type, 'perpendicular')
-            continue
-        elseif ~exist('Velocity_calc', 'var')
-            continue
-        end
-
-        plot(Velocity_calc.xcorr_range.velocity)
-        legendnames = [legendnames; ROIname];
-        clear Velocity_calc ROI_type
-    end
-
-    legend(legendnames)
-
 end
-
-end
-
-
-% 
-% 
-% function [skipframes, est_frames_to_cross_kymo, est_sec_to_cross_kymo, est_mm_per_sec] = calc_skip_amount(kymoImg, framerate, pixelsize, option)
-% 
-% if exist('option', 'var') && matches(option, 'whole')
-% 
-%     %% skipamt calculation:
-%     % if it is 2, it skips every other point.  3 = skips 2/3rds of points, etc
-%     % estimate speed
-%     f1 = figure; imagesc(kymoImg(1:round(framerate),:)'); colormap('gray');
-%     opts.WindowStyle = 'normal';
-%     est_frames_to_cross_kymo = inputdlg({'How many frames for rbc to cross the kymograph?'},'input', [1 45], {''}, opts);
-%     close(f1);
-%     est_frames_to_cross_kymo = str2double(est_frames_to_cross_kymo{1});
-%     est_sec_to_cross_kymo = est_frames_to_cross_kymo/framerate;
-%     length_um_ROI = size(kymoImg,2)*pixelsize;
-%     est_um_per_sec = (1/est_sec_to_cross_kymo)*length_um_ROI;
-%     est_mm_per_sec = est_um_per_sec/1000;
-%     disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
-% 
-%     if est_frames_to_cross_kymo < 1
-%         warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
-%             'Either the kymograph ROI is too short, or the acquisition is too ' ...
-%             'slow to make an accurate speed calculation.']);
-%         skipframes = 1;
-%         return
-%     end
-% 
-% else
-%     %% on a part of the RBC trajectory
-%     if size(kymoImg, 1)<round(framerate)
-%         f1 = figure; imagesc(kymoImg(:,:)); colormap('gray');
-%     else
-%         f1 = figure; imagesc(kymoImg(1:round(framerate),:)); colormap('gray');
-%     end
-%     opts.WindowStyle = 'normal';
-%     dlgtitle = 'Estimate speed';
-%     prompt = {'Frames over x-axis (space)', 'Frames over y-axis (time)'};
-%     fieldsize = [1 45; 1 45];
-%     answers = inputdlg(prompt,dlgtitle, fieldsize, {'', ''}, opts);
-% 
-%     close(f1);
-%     shift_amt = str2double(answers{1});
-%     skipamt = str2double(answers{2});
-%     est_um_per_sec = shift_amt*pixelsize*(framerate/skipamt);
-%     est_mm_per_sec = est_um_per_sec/1000;
-% 
-%     length_um_ROI = size(kymoImg,2)*pixelsize;
-%     est_sec_to_cross_kymo = length_um_ROI/est_um_per_sec;
-%     est_frames_to_cross_kymo = (size(kymoImg,2)/shift_amt)*skipamt;
-% 
-%     disp(['Estimated speed = ' num2str(est_mm_per_sec) ' mm per sec.'])
-% 
-%     if est_frames_to_cross_kymo < 1
-%         warning(['It is estimated that RBC''s leave the kymo within one frame. ' ...
-%             'Either the kymograph ROI is too short, or the acquisition is too ' ...
-%             'slow to make an accurate speed calculation.']);
-%         skipframes = 1;
-%         return
-%     end
-% 
-% end
-% 
-% %% calculate number of frames you should skip
-% skipframes = round(0.25*est_frames_to_cross_kymo);
-% 
-% if skipframes < 1
-%     warning(['Calculated frames to skip was smaller than 1. Adjusted to'...
-%         ' 4 but RBCs may be too fast to accurately calculate velocity.']);
-%     skipframes = 4;
-% elseif skipframes < 5
-%     warning('Skipframes was smaller than 5, so kept at 5.')
-%     skipframes = 5;
-% end
-% 
-% end
-% 
-% 
-% 
-% function [orientation] = identify_orientation(kymoImg, framerate)
-% 
-% f1 = figure('Position', [40 60 1000 800]);
-% tiledlayout(6,2)
-% 
-% nexttile(1, [1 2]);
-% imagesc(kymoImg(:,:)'); colormap('gray');
-% title('all')
-% 
-% if size(kymoImg,1)>round(framerate*2)
-%     nexttile(3, [1 2]);
-%     imagesc(kymoImg(1:round(framerate*2),:)'); colormap('gray');
-%     title('2 sec')
-% end
-% 
-% if size(kymoImg,1)>round(framerate/2)
-%     nexttile(5, [1 2]);
-%     imagesc(kymoImg(1:round(framerate/2),:)'); colormap('gray');
-%     title('0.5 sec')
-% end
-% 
-% nexttile(7, [1 2]);
-% imagesc(kymoImg(1:100,:)'); colormap('gray');
-% title('100 frames')
-% 
-% nexttile(9, [2 1]);
-% plot([1 2], [2 1]);
-% title('Forwards')
-% 
-% nexttile(10, [2 1]);
-% plot([1 2], [1 2]);
-% title('Backwards')
-% 
-% opts.Interpreter = 'none';
-% opts.Default = 'Cancel';
-% opts.WindowStyle = 'normal';
-% orientation = questdlg('Are the RBC moving forwards or backwards?', 'Orientation', 'Forwards', 'Backwards', 'Cancel', opts);
-% 
-% if matches(orientation, 'Cancel')
-%     return
-% end
-% 
-% close(f1);
-% end
-% 
 
 
